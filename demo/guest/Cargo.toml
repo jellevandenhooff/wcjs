@@ -1,0 +1,10 @@
+[package]
+name = "calculator"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.53.0", features = ["async-spawn"] }
+futures = { version = "0.3", default-features = false, features = ["alloc"] }

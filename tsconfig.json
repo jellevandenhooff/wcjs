@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "declaration": false,
+    "paths": {
+      "wcjs/runtime": ["./src/runtime/index.ts"],
+      "wcjs/wasi": ["./src/wasi/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "demo/**/*.ts", "cli.ts"],
+  "exclude": ["test/out", "test/guest/out", "test/debug-fs.ts", "demo/generated", "demo/dist", "demo/guest"]
+}

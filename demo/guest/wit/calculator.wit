@@ -1,0 +1,16 @@
+package demo:calculator;
+
+interface host {
+  slow-double: async func(n: u32) -> u32;
+  log: func(msg: string);
+}
+
+interface calc {
+  add: func(a: s32, b: s32) -> s32;
+  double-and-add: async func(a: u32, b: u32) -> u32;
+}
+
+world calculator {
+  import host;
+  export calc;
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@jellevdh/wcjs",
+  "version": "0.1.0",
+  "license": "(MIT OR Apache-2.0)",
+  "type": "module",
+  "bin": {
+    "wcjs": "./bin/wcjs.js"
+  },
+  "exports": {
+    "./runtime": {
+      "types": "./dist/src/runtime/index.d.ts",
+      "import": "./dist/src/runtime/index.js"
+    },
+    "./wasi": {
+      "types": "./dist/src/wasi/index.d.ts",
+      "import": "./dist/src/wasi/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsgo -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "test": "node --experimental-transform-types test/run.ts",
+    "check": "tsgo --noEmit",
+    "gen-host-types": "wcjs gen-types ../wasmtime/crates/wasi/src/p3/wit/deps ../wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit --p2 ../wasmtime/crates/wasi/src/p2/wit/deps -o src/wasi/wasi-types.generated.ts",
+    "test:go": "bash test/gotest.sh",
+    "test:go-dist": "bash test/godisttest.sh",
+    "test:go-wasmtime": "bash test/gotest-wasmtime.sh",
+    "demo:build": "bash demo/build.sh",
+    "demo:node": "node --experimental-transform-types demo/node-demo.ts",
+    "demo:serve": "npx serve demo/dist -l 8080 --cors",
+    "test:browser": "node --experimental-transform-types test/browser-run.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "@typescript/native-preview": "latest",
+    "playwright": "^1.52.0"
+  }
+}

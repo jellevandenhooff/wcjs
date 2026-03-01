@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+src/**/*.js
+test/out/
+test/guest/out/
+dist/
+*.wasm
+demo/generated/
+demo/dist/
+demo/guest/target/
+test/guest/rust/*/target/
