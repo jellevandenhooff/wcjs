@@ -35,7 +35,19 @@ export function spawnAsync(
   });
 }
 
+// TODO: Remove once wasm-tools supports the new threading builtin names.
+const WASM_TOOLS_COMPAT: [string, string][] = [
+  ['thread.yield-to', 'thread.yield-to-suspended'],
+  ['thread.switch-to', 'thread.suspend-to'],
+  ['thread.resume-later', 'thread.unsuspend'],
+];
+
 export async function compileWat(watPath: string, wasmPath: string): Promise<void> {
+  let wat = readFileSync(watPath, 'utf8');
+  for (const [newName, oldName] of WASM_TOOLS_COMPAT) {
+    wat = wat.replaceAll(newName, oldName);
+  }
+  writeFileSync(watPath, wat);
   await spawnAsync('wasm-tools', ['parse', watPath, '-o', wasmPath]);
   await spawnAsync('wasm-tools', [
     'validate', '--features', 'cm-async,cm-async-builtins,cm-async-stackful,cm-threading', wasmPath,
