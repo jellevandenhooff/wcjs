@@ -54,7 +54,7 @@ class EmitContext {
   private hostIfaceVarNames = new Map<string, string>();
 
   // Host import info (collected in preScan, used by emitImportsType + emitTypedHostInterfaces)
-  private ifaceMethods = new Map<string, { exportName: string; lowerInfo: HostImportLowerInfo; isAsync: boolean }[]>();
+  private ifaceMethods = new Map<string, { exportName: string; lowerInfo: HostImportLowerInfo; isAsync: boolean; isFutureResult: boolean }[]>();
   private ifaceDrops = new Map<string, string[]>();
   private ifacePassthrough = new Set<string>();
   private bareFuncImports = new Map<string, { paramCount: number; isAsync: boolean }>();
@@ -126,10 +126,18 @@ class EmitContext {
         const stripAsync = (n: string) =>
           n.startsWith('[async]') ? n.slice(7) :
           n.startsWith('[async ') ? '[' + n.slice(7) : n;
-        const funcName = t.isAsync ? t.exportName : stripAsync(t.exportName);
+        const addAsync = (n: string) =>
+          n.startsWith('[') ? '[async ' + n.slice(1) : '[async]' + n;
+        // Name selection must match emitLowerHostImportTrampoline:
+        // future-returning functions → [async] name; otherwise → sync name.
+        const isFutureResult = !!(t.lowerInfo.resultType &&
+          typeof t.lowerInfo.resultType === 'object' && t.lowerInfo.resultType.tag === 'future');
+        const funcName = isFutureResult
+          ? addAsync(stripAsync(t.exportName))
+          : stripAsync(t.exportName);
         const existing = this.ifaceMethods.get(t.importName)!;
         if (!existing.some(m => m.exportName === funcName)) {
-          existing.push({ exportName: funcName, lowerInfo: t.lowerInfo, isAsync: t.isAsync });
+          existing.push({ exportName: funcName, lowerInfo: t.lowerInfo, isAsync: t.isAsync, isFutureResult });
         }
       } else if (t.tag === 'lowerHostImport' && !t.lowerInfo) {
         if (!this.ifaceMethods.has(t.importName)) this.ifacePassthrough.add(t.importName);
@@ -279,10 +287,18 @@ class EmitContext {
         const sigs: string[] = [];
         for (const m of methods) {
           const params = m.lowerInfo.paramTypes.map((pt, i) => `p${i}: ${hostValTypeToTS(pt)}`).join(', ');
-          const baseRetType = m.lowerInfo.resultType !== null ? hostValTypeToTS(m.lowerInfo.resultType) : 'void';
-          const retType = m.isAsync && baseRetType !== 'void'
+          // For future-returning [async] functions: use the inner type of the future.
+          // Async lowering: linker already stripped future, resultType = T.
+          // Sync lowering: future preserved, resultType = {tag:'future', elem: T}.
+          let rt = m.lowerInfo.resultType;
+          if (m.isFutureResult && rt && typeof rt === 'object' && rt.tag === 'future') {
+            rt = rt.elem;
+          }
+          const baseRetType = rt !== null ? hostValTypeToTS(rt) : 'void';
+          // Host functions may return T or Promise<T> (async trampolines handle promises)
+          const retType = baseRetType !== 'void'
             ? `${baseRetType} | Promise<${baseRetType}>`
-            : m.isAsync ? 'void | Promise<void>' : baseRetType;
+            : 'void | Promise<void>';
           const key = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(m.exportName) ? m.exportName : `'${m.exportName}'`;
           sigs.push(`${key}(${params}): ${retType}`);
         }
@@ -431,10 +447,14 @@ class EmitContext {
       const sigs: string[] = [];
       for (const m of methods) {
         const params = m.lowerInfo.paramTypes.map((pt, i) => `p${i}: ${hostValTypeToTS(pt)}`).join(', ');
-        const baseRetType = m.lowerInfo.resultType !== null ? hostValTypeToTS(m.lowerInfo.resultType) : 'void';
-        const retType = m.isAsync && baseRetType !== 'void'
+        let rt = m.lowerInfo.resultType;
+        if (m.isFutureResult && rt && typeof rt === 'object' && rt.tag === 'future') {
+          rt = rt.elem;
+        }
+        const baseRetType = rt !== null ? hostValTypeToTS(rt) : 'void';
+        const retType = baseRetType !== 'void'
           ? `${baseRetType} | Promise<${baseRetType}>`
-          : m.isAsync ? 'void | Promise<void>' : baseRetType;
+          : 'void | Promise<void>';
         const key = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(m.exportName) ? m.exportName : `'${m.exportName}'`;
         sigs.push(`${key}(${params}): ${retType}`);
       }
@@ -929,27 +949,31 @@ class EmitContext {
   private emitLowerHostImportTrampoline(idx: number, t: Trampoline & { tag: 'lowerHostImport' }, stateVar: string): void {
     this.nextTmpVar = 0; // Reset for each trampoline
     this.currentStateIdx = t.stateIdx;
-    // Use the original export name for host lookup.
-    // Async-lowered imports keep their [async] prefix when it changes the calling
-    // convention (e.g., sync returns future handle, async returns result/Promise).
     const stripAsync = (n: string) =>
       n.startsWith('[async]') ? n.slice(7) :
       n.startsWith('[async ') ? '[' + n.slice(7) : n;
-    const hostExportName = t.isAsync ? t.exportName : stripAsync(t.exportName);
+    const addAsync = (n: string) =>
+      n.startsWith('[') ? '[async ' + n.slice(1) : '[async]' + n;
+    const isFutureResult = t.lowerInfo?.resultType &&
+      typeof t.lowerInfo.resultType === 'object' && t.lowerInfo.resultType.tag === 'future';
+    const hostExportName = isFutureResult
+      ? addAsync(stripAsync(t.exportName))
+      : stripAsync(t.exportName);
     const ifaceVar = this.hostIfaceVarNames.get(t.importName);
+    const hostFnLookup = ifaceVar
+      ? `${ifaceVar}['${hostExportName}']`
+      : `(imports['${t.importName}']${this.ts(' as Record<string, Function>')})['${hostExportName}']`;
+
     if (!t.lowerInfo) {
       // Pass-through: no type info available, forward args directly
-      const hostFnExpr = ifaceVar
-        ? `${ifaceVar}['${hostExportName}']`
-        : `(imports['${t.importName}']${this.ts(' as Record<string, Function>')})['${hostExportName}']`; // fallback for unregistered interfaces
       if (t.isAsync) {
         this.line(`const trampoline${idx} = (...args${this.ts(': unknown[]')})${this.ts(': number')} => {`);
-        this.line(`    const result = ${hostFnExpr}(...args);`);
+        this.line(`    const result = ${hostFnLookup}(...args);`);
         this.line(`    return ${stateVar}.lowerImportAsync(result);`);
         this.line('};');
       } else {
         this.line(`const trampoline${idx} = (...args${this.ts(': unknown[]')})${this.ts(': unknown')} => {`);
-        this.line(`    return ${hostFnExpr}(...args);`);
+        this.line(`    return ${hostFnLookup}(...args);`);
         this.line('};');
       }
       return;
@@ -973,11 +997,7 @@ class EmitContext {
       if (hasRetptr) paramParts.push(`retptr${this.ts(': number')}`);
 
       this.line(`const trampoline${idx} = (${paramParts.join(', ')})${this.ts(': number')} => {`);
-      if (ifaceVar) {
-        this.line(`    const hostFn = ${ifaceVar}['${hostExportName}'];`);
-      } else {
-        this.line(`    const hostFn = (imports['${t.importName}']${this.ts(' as Record<string, Function>')})['${hostExportName}']${this.ts('!')};`);
-      }
+      this.line(`    const hostFn = ${hostFnLookup};`);
       this.line(`    const _dv = new DataView(memory${memIdx}.buffer);`);
 
       // Load parameters from canonical ABI record layout and lift to JS values
@@ -1043,11 +1063,7 @@ class EmitContext {
           : 'void';
 
     this.line(`const trampoline${idx} = (${paramParts.join(', ')})${this.ts(': ' + returnType)} => {`);
-    if (ifaceVar) {
-      this.line(`    const hostFn = ${ifaceVar}['${hostExportName}'];`);
-    } else {
-      this.line(`    const hostFn = (imports['${t.importName}']${this.ts(' as Record<string, Function>')})['${hostExportName}']!;`);
-    }
+    this.line(`    const hostFn = ${hostFnLookup};`);
 
     // Lift parameters from flat core args to JS values
     const liftedArgs: string[] = [];
@@ -1096,6 +1112,20 @@ class EmitContext {
       } else {
         this.genStoreResult(info.resultType!, memIdx!, reallocExpr, 'retptr', 'result', 0);
       }
+    } else if (isFutureResult) {
+      this.line(`    const result = hostFn(${callArgs});`);
+      this.line(`    const _fp = ${stateVar}.futureNew(0);`);
+      this.line(`    const _fri = Number(_fp & 0xFFFFFFFFn);`);
+      this.line(`    const _fwi = Number(_fp >> 32n);`);
+      this.line(`    if (result instanceof Promise) {`);
+      this.line(`        ${stateVar}.trackHostAsync(result.then(`);
+      this.line(`            _v => { ${stateVar}.futureWriteHost(0, _fwi, [_v]); },`);
+      this.line(`            () => { try { ${stateVar}.futureWriteHost(0, _fwi, [{ tag: 'ok' }]); } catch (_) {} }`);
+      this.line(`        ));`);
+      this.line(`    } else {`);
+      this.line(`        ${stateVar}.futureWriteHost(0, _fwi, [result]);`);
+      this.line(`    }`);
+      this.line(`    return _fri;`);
     } else {
       // Single flat result — return directly
       // For own resources, wrap the host rep with resourceNew()

@@ -571,31 +571,6 @@ export function emitHostImportTypesFromWit(p3Packages: WitPackage[], p2Packages:
 
   // Emit WasiHostInterfaces type
   if (sigs.size > 0 && (hasP2 || hasP3)) {
-    // WithAliases: adds both [async] aliases from sync methods AND
-    // sync stubs from [async] methods (auto-generated at runtime).
-    lines.push('type AsyncKey<K extends string> =');
-    lines.push("  K extends `[${infer P}]${infer R}` ? `[async ${P}]${R}` : `[async]${K}`;");
-    lines.push('type SyncKey<K extends string> =');
-    lines.push("  K extends `[async]${infer R}` ? R :");
-    lines.push("  K extends `[async ${infer P}]${infer R}` ? `[${P}]${R}` : never;");
-    lines.push('type WithAliases<T> = T & {');
-    lines.push('  [K in keyof T as K extends string ?');
-    lines.push("    (K extends `[async${string}` ? never :");
-    lines.push("     K extends `[resource-drop]${string}` ? never :");
-    lines.push('     AsyncKey<K> extends keyof T ? never :');
-    lines.push('     AsyncKey<K>) : never]:');
-    lines.push('    T[K] extends (...args: infer A) => infer R');
-    lines.push('      ? (...args: A) => R | Promise<Awaited<R>>');
-    lines.push('      : T[K];');
-    lines.push('} & {');
-    lines.push('  [K in keyof T as K extends string ?');
-    lines.push("    (K extends `[async]${string}` | `[async ${string}` ?");
-    lines.push('      SyncKey<K> extends keyof T ? never : SyncKey<K>');
-    lines.push('    : never) : never]:');
-    lines.push('    (...args: any[]) => any;');
-    lines.push('};');
-    lines.push('');
-
     // Version type aliases
     const p3Versions = deriveVersions(p3Packages);
     const p2Versions = deriveVersions(p2Packages);
@@ -611,7 +586,7 @@ export function emitHostImportTypesFromWit(p3Packages: WitPackage[], p2Packages:
       const baseName = ifaceToTSName(bare);
       const hasBoth = !!scoped.p2 && !!scoped.p3;
       if (scoped.p3)
-        parts.push(`  { [K in \`${bare}@\${P3Version}\`]: WithAliases<${baseName}> }`);
+        parts.push(`  { [K in \`${bare}@\${P3Version}\`]: ${baseName} }`);
       if (scoped.p2) {
         const p2Name = hasBoth ? baseName + 'P2' : baseName;
         parts.push(`  { [K in \`${bare}@\${P2Version}\`]: ${p2Name} }`);
@@ -643,7 +618,7 @@ function deriveVersions(packages: WitPackage[]): string[] {
 
   // For P3 (0.3.0-rc-...): list known RC versions matching createWasiHost
   if (ver.startsWith('0.3.')) {
-    return ['0.3.0-rc-2025-09-16', ver].filter((v, i, a) => a.indexOf(v) === i).sort();
+    return [ver];
   }
 
   return [ver];

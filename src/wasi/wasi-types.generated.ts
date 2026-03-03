@@ -676,75 +676,53 @@ export interface WasiSocketsUdpCreateSocket {
   'create-udp-socket'(p0: IpAddressFamily): { tag: 'ok'; val: number } | { tag: 'err'; val: 'unknown' | 'access-denied' | 'not-supported' | 'invalid-argument' | 'out-of-memory' | 'timeout' | 'concurrency-conflict' | 'not-in-progress' | 'would-block' | 'invalid-state' | 'new-socket-limit' | 'address-not-bindable' | 'address-in-use' | 'remote-unreachable' | 'connection-refused' | 'connection-reset' | 'connection-aborted' | 'datagram-too-large' | 'name-unresolvable' | 'temporary-resolver-failure' | 'permanent-resolver-failure' };
 }
 
-type AsyncKey<K extends string> =
-  K extends `[${infer P}]${infer R}` ? `[async ${P}]${R}` : `[async]${K}`;
-type SyncKey<K extends string> =
-  K extends `[async]${infer R}` ? R :
-  K extends `[async ${infer P}]${infer R}` ? `[${P}]${R}` : never;
-type WithAliases<T> = T & {
-  [K in keyof T as K extends string ?
-    (K extends `[async${string}` ? never :
-     K extends `[resource-drop]${string}` ? never :
-     AsyncKey<K> extends keyof T ? never :
-     AsyncKey<K>) : never]:
-    T[K] extends (...args: infer A) => infer R
-      ? (...args: A) => R | Promise<Awaited<R>>
-      : T[K];
-} & {
-  [K in keyof T as K extends string ?
-    (K extends `[async]${string}` | `[async ${string}` ?
-      SyncKey<K> extends keyof T ? never : SyncKey<K>
-    : never) : never]:
-    (...args: any[]) => any;
-};
-
-type P3Version = '0.3.0-rc-2025-09-16' | '0.3.0-rc-2026-02-09';
+type P3Version = '0.3.0-rc-2026-02-09';
 type P2Version = '0.2.0' | '0.2.1' | '0.2.2' | '0.2.3' | '0.2.4' | '0.2.5' | '0.2.6';
 
 export type WasiHostInterfaces =
-  { [K in `wasi:cli/environment@${P3Version}`]: WithAliases<WasiCliEnvironment> }
+  { [K in `wasi:cli/environment@${P3Version}`]: WasiCliEnvironment }
   &   { [K in `wasi:cli/environment@${P2Version}`]: WasiCliEnvironmentP2 }
-  &   { [K in `wasi:cli/exit@${P3Version}`]: WithAliases<WasiCliExit> }
+  &   { [K in `wasi:cli/exit@${P3Version}`]: WasiCliExit }
   &   { [K in `wasi:cli/exit@${P2Version}`]: WasiCliExitP2 }
-  &   { [K in `wasi:cli/run@${P3Version}`]: WithAliases<WasiCliRun> }
+  &   { [K in `wasi:cli/run@${P3Version}`]: WasiCliRun }
   &   { [K in `wasi:cli/run@${P2Version}`]: WasiCliRunP2 }
-  &   { [K in `wasi:cli/stdin@${P3Version}`]: WithAliases<WasiCliStdin> }
+  &   { [K in `wasi:cli/stdin@${P3Version}`]: WasiCliStdin }
   &   { [K in `wasi:cli/stdin@${P2Version}`]: WasiCliStdinP2 }
-  &   { [K in `wasi:cli/stdout@${P3Version}`]: WithAliases<WasiCliStdout> }
+  &   { [K in `wasi:cli/stdout@${P3Version}`]: WasiCliStdout }
   &   { [K in `wasi:cli/stdout@${P2Version}`]: WasiCliStdoutP2 }
-  &   { [K in `wasi:cli/stderr@${P3Version}`]: WithAliases<WasiCliStderr> }
+  &   { [K in `wasi:cli/stderr@${P3Version}`]: WasiCliStderr }
   &   { [K in `wasi:cli/stderr@${P2Version}`]: WasiCliStderrP2 }
-  &   { [K in `wasi:cli/terminal-input@${P3Version}`]: WithAliases<WasiCliTerminalInput> }
+  &   { [K in `wasi:cli/terminal-input@${P3Version}`]: WasiCliTerminalInput }
   &   { [K in `wasi:cli/terminal-input@${P2Version}`]: WasiCliTerminalInputP2 }
-  &   { [K in `wasi:cli/terminal-output@${P3Version}`]: WithAliases<WasiCliTerminalOutput> }
+  &   { [K in `wasi:cli/terminal-output@${P3Version}`]: WasiCliTerminalOutput }
   &   { [K in `wasi:cli/terminal-output@${P2Version}`]: WasiCliTerminalOutputP2 }
-  &   { [K in `wasi:cli/terminal-stdin@${P3Version}`]: WithAliases<WasiCliTerminalStdin> }
+  &   { [K in `wasi:cli/terminal-stdin@${P3Version}`]: WasiCliTerminalStdin }
   &   { [K in `wasi:cli/terminal-stdin@${P2Version}`]: WasiCliTerminalStdinP2 }
-  &   { [K in `wasi:cli/terminal-stdout@${P3Version}`]: WithAliases<WasiCliTerminalStdout> }
+  &   { [K in `wasi:cli/terminal-stdout@${P3Version}`]: WasiCliTerminalStdout }
   &   { [K in `wasi:cli/terminal-stdout@${P2Version}`]: WasiCliTerminalStdoutP2 }
-  &   { [K in `wasi:cli/terminal-stderr@${P3Version}`]: WithAliases<WasiCliTerminalStderr> }
+  &   { [K in `wasi:cli/terminal-stderr@${P3Version}`]: WasiCliTerminalStderr }
   &   { [K in `wasi:cli/terminal-stderr@${P2Version}`]: WasiCliTerminalStderrP2 }
-  &   { [K in `wasi:clocks/monotonic-clock@${P3Version}`]: WithAliases<WasiClocksMonotonicClock> }
+  &   { [K in `wasi:clocks/monotonic-clock@${P3Version}`]: WasiClocksMonotonicClock }
   &   { [K in `wasi:clocks/monotonic-clock@${P2Version}`]: WasiClocksMonotonicClockP2 }
-  &   { [K in `wasi:clocks/system-clock@${P3Version}`]: WithAliases<WasiClocksSystemClock> }
-  &   { [K in `wasi:clocks/timezone@${P3Version}`]: WithAliases<WasiClocksTimezone> }
+  &   { [K in `wasi:clocks/system-clock@${P3Version}`]: WasiClocksSystemClock }
+  &   { [K in `wasi:clocks/timezone@${P3Version}`]: WasiClocksTimezone }
   &   { [K in `wasi:clocks/timezone@${P2Version}`]: WasiClocksTimezoneP2 }
-  &   { [K in `wasi:filesystem/types@${P3Version}`]: WithAliases<WasiFilesystemTypes> }
+  &   { [K in `wasi:filesystem/types@${P3Version}`]: WasiFilesystemTypes }
   &   { [K in `wasi:filesystem/types@${P2Version}`]: WasiFilesystemTypesP2 }
-  &   { [K in `wasi:filesystem/preopens@${P3Version}`]: WithAliases<WasiFilesystemPreopens> }
+  &   { [K in `wasi:filesystem/preopens@${P3Version}`]: WasiFilesystemPreopens }
   &   { [K in `wasi:filesystem/preopens@${P2Version}`]: WasiFilesystemPreopensP2 }
-  &   { [K in `wasi:random/insecure-seed@${P3Version}`]: WithAliases<WasiRandomInsecureSeed> }
+  &   { [K in `wasi:random/insecure-seed@${P3Version}`]: WasiRandomInsecureSeed }
   &   { [K in `wasi:random/insecure-seed@${P2Version}`]: WasiRandomInsecureSeedP2 }
-  &   { [K in `wasi:random/insecure@${P3Version}`]: WithAliases<WasiRandomInsecure> }
+  &   { [K in `wasi:random/insecure@${P3Version}`]: WasiRandomInsecure }
   &   { [K in `wasi:random/insecure@${P2Version}`]: WasiRandomInsecureP2 }
-  &   { [K in `wasi:random/random@${P3Version}`]: WithAliases<WasiRandomRandom> }
+  &   { [K in `wasi:random/random@${P3Version}`]: WasiRandomRandom }
   &   { [K in `wasi:random/random@${P2Version}`]: WasiRandomRandomP2 }
-  &   { [K in `wasi:sockets/types@${P3Version}`]: WithAliases<WasiSocketsTypes> }
-  &   { [K in `wasi:sockets/ip-name-lookup@${P3Version}`]: WithAliases<WasiSocketsIpNameLookup> }
+  &   { [K in `wasi:sockets/types@${P3Version}`]: WasiSocketsTypes }
+  &   { [K in `wasi:sockets/ip-name-lookup@${P3Version}`]: WasiSocketsIpNameLookup }
   &   { [K in `wasi:sockets/ip-name-lookup@${P2Version}`]: WasiSocketsIpNameLookupP2 }
-  &   { [K in `wasi:http/types@${P3Version}`]: WithAliases<WasiHttpTypes> }
-  &   { [K in `wasi:http/handler@${P3Version}`]: WithAliases<WasiHttpHandler> }
-  &   { [K in `wasi:http/client@${P3Version}`]: WithAliases<WasiHttpClient> }
+  &   { [K in `wasi:http/types@${P3Version}`]: WasiHttpTypes }
+  &   { [K in `wasi:http/handler@${P3Version}`]: WasiHttpHandler }
+  &   { [K in `wasi:http/client@${P3Version}`]: WasiHttpClient }
   &   { [K in `wasi:clocks/wall-clock@${P2Version}`]: WasiClocksWallClock }
   &   { [K in `wasi:io/error@${P2Version}`]: WasiIoError }
   &   { [K in `wasi:io/poll@${P2Version}`]: WasiIoPoll }

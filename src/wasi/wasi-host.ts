@@ -11,7 +11,6 @@ import {
   WASI_TRACE,
   traceWrap,
   p2Stubs,
-  addAsyncAliases,
   versionP3Ifaces,
   createCommonP3Ifaces,
 } from './wasi-shared.ts';
@@ -115,8 +114,6 @@ export function createWasiHost(opts: WasiHostOptions = {}): WasiHost {
       p3Ifaces[key] = traceWrap(shortName, p3Ifaces[key]!);
     }
   }
-
-  addAsyncAliases(p3Ifaces as Record<string, Record<string, Function>>, ctx);
 
   return {
     _stdout: stdoutArr,
