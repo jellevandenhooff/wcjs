@@ -27,8 +27,10 @@ export function spawnAsync(
     proc.stderr!.on('data', (d: Buffer) => { stderr += d; });
     proc.on('error', reject);
     proc.on('close', (code) => {
-      if (code !== 0) reject(new Error(`${cmd} ${args.join(' ')} failed (exit ${code}):\nstdout: ${stdout}\nstderr: ${stderr}`));
-      else resolve({ stdout, stderr });
+      if (code !== 0) {
+        const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+        reject(new Error(`${cmd} ${args.join(' ')} failed (exit ${code})${output ? `:\n${output}` : ''}`));
+      } else resolve({ stdout, stderr });
     });
   });
 }
