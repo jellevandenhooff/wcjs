@@ -431,7 +431,6 @@ export function createFilesystemHost(ctx: HostContext, opts: FilesystemOptions =
         return [sRi, fRi];
       },
 
-      // Async-lowered versions: return Promise<result> instead of future handles.
       '[async method]descriptor.write-via-stream': (handle: number, streamEndIdx: number, offset: bigint) => {
         const state = ctx.state!;
         const d = getDesc(handle);

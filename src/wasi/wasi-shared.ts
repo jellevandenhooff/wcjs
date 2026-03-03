@@ -98,6 +98,7 @@ export function makeWriteViaStream(ctx: HostContext, target: string[] | { write(
   };
 }
 
+
 export function makeReadViaStream(ctx: HostContext): () => number[] {
   return () => {
     const state = ctx.state!;
@@ -225,53 +226,9 @@ export function p2Stubs(opts: P2StubOptions, stdoutTarget: string[] | { write(s:
   return result;
 }
 
-// ---- Async aliasing ----
-
-/**
- * Add [async] aliases for all methods in P3 interfaces, and reverse sync wrappers.
- */
-export function addAsyncAliases(p3Ifaces: Record<string, Record<string, Function>>, ctx: HostContext): void {
-  for (const methods of Object.values(p3Ifaces)) {
-    for (const name of Object.keys(methods)) {
-      if (typeof methods[name] !== 'function') continue;
-      if (name.startsWith('[async]') || name.startsWith('[async ')) continue;
-      const asyncName = name.startsWith('[') ? '[async ' + name.slice(1) : '[async]' + name;
-      if (!(asyncName in methods)) {
-        methods[asyncName] = methods[name]!;
-      }
-    }
-  }
-
-  // Reverse: [async]foo → foo sync wrapper with future handle
-  for (const methods of Object.values(p3Ifaces)) {
-    for (const name of Object.keys(methods)) {
-      if (typeof methods[name] !== 'function') continue;
-      if (!name.startsWith('[async]') && !name.startsWith('[async ')) continue;
-      const syncName = name.startsWith('[async]') ? name.slice(7) : '[' + name.slice(7);
-      if (syncName in methods) continue;
-      const asyncFn = methods[name]!;
-      methods[syncName] = (...args: unknown[]) => {
-        const result = asyncFn(...args);
-        if (result && typeof (result as any).then === 'function') {
-          const state = ctx.state!;
-          const fPacked = state.futureNew(0);
-          const fRi = Number(fPacked & 0xFFFFFFFFn);
-          const fWi = Number(fPacked >> 32n);
-          state.trackHostAsync((result as Promise<unknown>).then(
-            val => { state.futureWriteHost(0, fWi, [val]); },
-            () => { try { state.futureWriteHost(0, fWi, [{ tag: 'ok' }]); } catch (_) {} }
-          ));
-          return fRi;
-        }
-        return result;
-      };
-    }
-  }
-}
-
 // ---- Versioned P3 interface registration ----
 
-export const P3_VERSIONS = ['0.3.0-rc-2025-09-16', '0.3.0-rc-2026-02-09'];
+export const P3_VERSIONS = ['0.3.0-rc-2026-02-09'];
 
 export function versionP3Ifaces(p3Ifaces: Record<string, object>): Record<string, object> {
   const result: Record<string, object> = {};

@@ -259,7 +259,8 @@ class UdpSocketHandle {
         state.handle.close();
         state.handle = nh;
         state.bindState = 2; // BIND_STATE_BOUND
-        if (this.connected) state.connectState = 2; // CONNECT_STATE_CONNECTED
+        // Don't set connectState — UDP connect is bookkeeping only (probe socket),
+        // the native handle is never actually connected.
         // Start receiving. Since we bypassed dgram.bind(), onmessage was never
         // set up internally. Buffer incoming messages so they aren't lost if they
         // arrive before receive() sets up a listener.
@@ -359,10 +360,25 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
       const addrFamily = addrParams.tag === 'ipv4' ? 'ipv4' : 'ipv6';
       if (addrFamily !== s.family) return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
 
-      // Reject IPv4-mapped IPv6 addresses (no dual-stack in WASI)
-      if (addrParams.tag === 'ipv6') {
+      // Reject non-unicast addresses (broadcast, multicast)
+      if (addrParams.tag === 'ipv4') {
         const a = addrParams.val.address;
+        // Broadcast (255.255.255.255)
+        if (a[0] === 255 && a[1] === 255 && a[2] === 255 && a[3] === 255) {
+          return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
+        }
+        // Multicast (224.0.0.0/4)
+        if (a[0] >= 224 && a[0] <= 239) {
+          return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
+        }
+      } else {
+        const a = addrParams.val.address;
+        // Reject IPv4-mapped IPv6 addresses (no dual-stack in WASI)
         if (a[0] === 0 && a[1] === 0 && a[2] === 0 && a[3] === 0 && a[4] === 0 && a[5] === 0xffff) {
+          return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
+        }
+        // IPv6 multicast (ff00::/8)
+        if ((a[0] & 0xff00) === 0xff00) {
           return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
         }
       }
@@ -586,6 +602,9 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
       const state = ctx.state!;
 
       if (s.state !== STATE.CONNECTED || s.sendStarted) {
+        // Drop the stream that was passed to us so the writer sees StreamResult::Dropped
+        const streamEnd = state.liftStreamEnd(0, streamEndIdx) as ReadableStreamEnd;
+        streamEnd.shared.dropReader();
         return Promise.resolve({ tag: 'err', val: SocketsErrorCode.InvalidState });
       }
 
@@ -968,29 +987,30 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
         s.bound = true;
       }
 
-      // Use native handle for synchronous connect (works both before and after ensureSocket)
-      const nh = s.getNativeHandle();
-      if (!nh) return { tag: 'err', val: SocketsErrorCode.InvalidState };
-
-      // Disconnect first if already connected (native handle requires this)
-      if (s.connected) {
-        nh.disconnect();
-      }
-
-      const connectFn = addr.family === 6 ? 'connect6' : 'connect';
-      const err = nh[connectFn](addr.host, addr.port);
-      if (err) {
-        if (err === UV_EINVAL) return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
-        return { tag: 'err', val: SocketsErrorCode.Unknown };
+      // UDP is connectionless — just track the default remote address for send().
+      // Use a temporary probe socket to resolve which local interface the OS
+      // would use for this destination. This avoids disconnect/reconnect on the
+      // main socket, which on Linux reassigns the ephemeral port.
+      {
+        const probe = new UDPWrap();
+        const bindFn = addr.family === 6 ? 'bind6' : 'bind';
+        const bindHost = addr.family === 6 ? '::' : '0.0.0.0';
+        probe[bindFn](bindHost, 0, 0);
+        const connectFn = addr.family === 6 ? 'connect6' : 'connect';
+        const err = probe[connectFn](addr.host, addr.port);
+        if (err) {
+          probe.close();
+          if (err === UV_EINVAL) return { tag: 'err', val: SocketsErrorCode.InvalidArgument };
+          return { tag: 'err', val: SocketsErrorCode.RemoteUnreachable };
+        }
+        const out: { address?: string } = {};
+        probe.getsockname(out);
+        probe.close();
+        if (out.address) s.localAddress = out.address;
       }
       s.connected = true;
       s.remoteAddress = addr.host;
       s.remotePort = addr.port;
-      // After connect, the OS resolves 0.0.0.0 to the actual interface address
-      const localOut: { address?: string; port?: number } = {};
-      nh.getsockname(localOut);
-      if (localOut.address) s.localAddress = localOut.address;
-      if (localOut.port) s.localPort = localOut.port;
       return { tag: 'ok' };
     },
 
@@ -1033,10 +1053,31 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
               });
             }
           } else if (s.connected) {
-            // Connected socket: ignore explicit address (matches POSIX sendto on connected UDP)
-            sock.send(buf, (err: Error | null) => {
-              resolve(err ? { tag: 'err' as const, val: mapError(err) } : { tag: 'ok' as const });
-            });
+            // Connected socket: send to the tracked remote address.
+            // Use native handle directly (same as unconnected path) to avoid
+            // dgram's internal address lookup which can fail with EINVAL on IPv6.
+            const addr = { host: s.remoteAddress!, port: s.remotePort!, family: s.family === 'ipv4' ? 4 : 6 };
+            const stateKey2 = Object.getOwnPropertySymbols(sock)
+              .find(sym => sym.toString().includes('state symbol'));
+            const state2 = stateKey2 ? (sock as any)[stateKey2] : null;
+            const nh = state2?.handle;
+            if (nh) {
+              const sendReq = { oncomplete: (st: number) => {
+                resolve(st < 0 ? { tag: 'err' as const, val: SocketsErrorCode.Unknown } : { tag: 'ok' as const });
+              }};
+              const result = addr.family === 6
+                ? nh.send6(sendReq, [buf], 1, addr.port, addr.host, false)
+                : nh.send(sendReq, [buf], 1, addr.port, addr.host, false);
+              if (result < 0) {
+                resolve({ tag: 'err', val: SocketsErrorCode.Unknown });
+              } else if (result >= 1) {
+                resolve({ tag: 'ok' });
+              }
+            } else {
+              sock.send(buf, s.remotePort!, s.remoteAddress!, (err: Error | null) => {
+                resolve(err ? { tag: 'err' as const, val: mapError(err) } : { tag: 'ok' as const });
+              });
+            }
           } else {
             // Unconnected socket without address: EDESTADDRREQ
             resolve({ tag: 'err', val: SocketsErrorCode.InvalidArgument });
@@ -1092,15 +1133,6 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
     '[method]udp-socket.get-remote-address': (handle: number) => {
       const s = getUdp(handle);
       if (!s.connected) return { tag: 'err', val: SocketsErrorCode.InvalidState };
-      // Use native handle getpeername for accurate remote address
-      const nh = s.getNativeHandle();
-      if (nh) {
-        const out: { address?: string; port?: number; family?: string } = {};
-        nh.getpeername(out);
-        if (out.address) {
-          return nodeAddressToResult(out.address, out.port!, out.family === 'IPv6' ? 'IPv6' : 'IPv4');
-        }
-      }
       return nodeAddressToResult(s.remoteAddress!, s.remotePort!,
         s.family === 'ipv4' ? 'IPv4' : 'IPv6');
     },
@@ -1108,9 +1140,6 @@ export function createSocketHost(ctx: HostContext, _opts: Record<string, unknown
     '[method]udp-socket.disconnect': (handle: number) => {
       const s = getUdp(handle);
       if (!s.connected) return { tag: 'err', val: SocketsErrorCode.InvalidState };
-      // Use native handle for synchronous disconnect (works both pre- and post-ensureSocket)
-      const nh = s.getNativeHandle();
-      if (nh) nh.disconnect();
       s.connected = false;
       s.remoteAddress = null;
       s.remotePort = null;

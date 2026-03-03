@@ -961,7 +961,7 @@ function executeHttpRequest(
 
 export function createHttpHandlerHost(ctx: HttpHostContext) {
   return {
-    async '[async]handle'(requestRep: number): Promise<{ tag: 'ok'; val: number } | { tag: 'err'; val: HttpErrorCode }> {
+    async 'handle'(requestRep: number): Promise<{ tag: 'ok'; val: number } | { tag: 'err'; val: HttpErrorCode }> {
       const state = ctx.state!;
       const req = requestsOf(ctx).get(requestRep);
       if (!req) {

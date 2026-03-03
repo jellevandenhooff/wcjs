@@ -7,7 +7,6 @@
 import type { WasiHost } from './wasi-host.ts';
 import {
   type HostContext,
-  addAsyncAliases,
   versionP3Ifaces,
   p2Stubs,
   createCommonP3Ifaces,
@@ -125,8 +124,6 @@ export function createBrowserWasiHost(opts: BrowserWasiHostOptions = {}): WasiHo
       'handle': () => ({ tag: 'err', val: 'internal-error' }),
     },
   };
-
-  addAsyncAliases(p3Ifaces, ctx);
 
   return {
     _stdout: stdoutArr,

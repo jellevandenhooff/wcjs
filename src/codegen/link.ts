@@ -1322,6 +1322,12 @@ function resolveCoreFuncBinding(
             if (typeof ty === 'object' && ty.tag === 'variant') {
               return { tag: 'variant', cases: ty.cases.map(c => ({ name: c.name, type: c.type ? resolveResourceTypes(c.type) : null })) };
             }
+            if (typeof ty === 'object' && ty.tag === 'future') {
+              return { tag: 'future', elem: ty.elem ? resolveResourceTypes(ty.elem) : null };
+            }
+            if (typeof ty === 'object' && ty.tag === 'stream') {
+              return { tag: 'stream', elem: ty.elem ? resolveResourceTypes(ty.elem) : null };
+            }
             return ty;
           };
           const paramTypes = compFunc.typeInfo.paramTypes.map(resolveResourceTypes);
