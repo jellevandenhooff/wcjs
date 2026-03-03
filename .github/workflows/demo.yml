@@ -1,0 +1,47 @@
+name: Deploy Demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.245.1'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Install cargo-wasm2map
+        run: cargo install cargo-wasm2map
+      - name: Download WASI adapter
+        run: |
+          curl -Lo wasi_adapter.wasm "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasi_snapshot_preview1.reactor.wasm"
+      - run: npm ci
+      - run: npm run demo:build
+        env:
+          WASI_ADAPTER: wasi_adapter.wasm
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo/dist
+      - uses: actions/deploy-pages@v4
+        id: deployment

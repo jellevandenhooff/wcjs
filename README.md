@@ -1,6 +1,6 @@
 # wcjs
 
-Runtime, codegen, and CLI for using [WebAssembly components](https://component-model.bytecodealliance.org/) and [WASI P3](https://wasi.dev/roadmap#upcoming-wasi-03-releases) in the browser and Node.js. Call and expose asynchronous WebAssembly code with ergonomic, fully-typed TypeScript bindings.
+Runtime, codegen, and CLI for using [WebAssembly components](https://component-model.bytecodealliance.org/) and [WASI P3](https://wasi.dev/roadmap#upcoming-wasi-03-releases) in the browser and Node.js. Call and expose asynchronous WebAssembly code with ergonomic, fully-typed TypeScript bindings. **[Try the live demo.](https://jellevandenhooff.github.io/wcjs/)**
 
 > **Warning:** This project is extremely experimental. APIs will change, things will break, and it's not easy to use yet. All code was written by LLM, with plenty of review and feedback. That said, a large test suite passes (including the component model spec tests and ported wasmtime integration tests) and it does seem to work.
 

@@ -7,13 +7,20 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
     h1 { margin-bottom: 0.25rem; }
-    p { color: #666; margin-bottom: 1.5rem; }
+    p { color: #666; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+    p:last-of-type { margin-bottom: 1.5rem; }
+    a { color: #0366d6; }
+    code { background: #f0f0f0; padding: 0.15em 0.35em; border-radius: 3px; font-size: 0.9em; }
     pre { background: #1a1a2e; color: #0f0; border-radius: 8px; padding: 1rem; font-size: 0.85rem; min-height: 120px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; }
   </style>
 </head>
 <body>
   <h1>wcjs demo</h1>
-  <p>Rust WASI P3 async component running in the browser</p>
+  <p>Rust WASI P3 async component running in the browser. Requires Chrome (for <a href="https://github.com/nicolo-ribaudo/tc39-proposal-jspi">JSPI</a>).</p>
+  <p>Open DevTools and look around! The Rust guest source is visible in the debugger with source maps.
+    See <a href="https://github.com/jellevandenhooff/wcjs/blob/main/demo/web/main.ts"><code>demo/web/main.ts</code></a> for the host,
+    <a href="https://github.com/jellevandenhooff/wcjs/blob/main/demo/guest/src/lib.rs"><code>demo/guest/src/lib.rs</code></a> for the Rust guest,
+    and <a href="https://github.com/jellevandenhooff/wcjs/tree/main/src/runtime"><code>src/runtime/</code></a> for the async component model runtime.</p>
   <pre id="log"></pre>
   <script type="module" src="main.js"></script>
 </body>
