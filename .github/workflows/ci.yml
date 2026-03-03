@@ -17,3 +17,157 @@ jobs:
       - run: npm run check
       - run: npm run build
       - run: npm test
+
+  guest-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: source deps.env && echo "GO_COMMIT=$GO_COMMIT" >> $GITHUB_ENV && echo "GO_REPO=$GO_REPO" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.245.1'
+
+      - name: Cache Go toolchain
+        id: cache-go
+        uses: actions/cache@v4
+        with:
+          path: go
+          key: go-toolchain-${{ env.GO_COMMIT }}
+          save-always: true
+
+      - name: Build Go toolchain
+        if: steps.cache-go.outputs.cache-hit != 'true'
+        run: |
+          git init go
+          cd go
+          git remote add origin https://github.com/$GO_REPO.git
+          git fetch --depth 1 origin $GO_COMMIT
+          git checkout FETCH_HEAD
+          cd src && ./make.bash
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build Go guest components
+        run: bash test/guest/build.sh go
+        env:
+          GODIR: ${{ github.workspace }}/go
+
+      - run: npm test
+        env:
+          GODIR: ${{ github.workspace }}/go
+
+  wasmtime-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: source deps.env && echo "WASMTIME_COMMIT=$WASMTIME_COMMIT" >> $GITHUB_ENV && echo "WASMTIME_REPO=$WASMTIME_REPO" >> $GITHUB_ENV && echo "WASM_TOOLS_VERSION=$WASM_TOOLS_VERSION" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.245.1'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1,wasm32-unknown-unknown
+
+      - name: Cache wasmtime build
+        id: cache-wasmtime
+        uses: actions/cache@v4
+        with:
+          path: wasmtime/target
+          key: wasmtime-${{ env.WASMTIME_COMMIT }}
+          save-always: true
+
+      - name: Clone wasmtime
+        if: steps.cache-wasmtime.outputs.cache-hit != 'true'
+        run: |
+          git init wasmtime
+          cd wasmtime
+          git remote add origin https://github.com/$WASMTIME_REPO.git
+          git fetch --depth 1 origin $WASMTIME_COMMIT
+          git checkout FETCH_HEAD
+          git submodule update --init
+
+      - name: Build wasmtime test programs
+        if: steps.cache-wasmtime.outputs.cache-hit != 'true'
+        run: cd wasmtime && cargo test -p test-programs-artifacts --no-run
+
+      - name: Clone wasmtime (for source, cache hit)
+        if: steps.cache-wasmtime.outputs.cache-hit == 'true'
+        run: |
+          git init wasmtime
+          cd wasmtime
+          git remote add origin https://github.com/$WASMTIME_REPO.git
+          git fetch --depth 1 origin $WASMTIME_COMMIT
+          git checkout FETCH_HEAD
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build Rust guest components
+        run: bash test/guest/build.sh rust
+        env:
+          WASMTIME_DIR: ${{ github.workspace }}/wasmtime
+
+      - name: Copy wasmtime test components
+        run: bash test/guest/copy-wasmtime-tests.sh
+        env:
+          WASMTIME_DIR: ${{ github.workspace }}/wasmtime
+
+      - run: npm test
+        env:
+          WASMTIME_DIR: ${{ github.workspace }}/wasmtime
+
+  go-stdlib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: source deps.env && echo "GO_COMMIT=$GO_COMMIT" >> $GITHUB_ENV && echo "GO_REPO=$GO_REPO" >> $GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+      - uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.245.1'
+
+      - name: Cache Go toolchain
+        id: cache-go
+        uses: actions/cache@v4
+        with:
+          path: go
+          key: go-toolchain-${{ env.GO_COMMIT }}
+          save-always: true
+
+      - name: Build Go toolchain
+        if: steps.cache-go.outputs.cache-hit != 'true'
+        run: |
+          git init go
+          cd go
+          git remote add origin https://github.com/$GO_REPO.git
+          git fetch --depth 1 origin $GO_COMMIT
+          git checkout FETCH_HEAD
+          cd src && ./make.bash
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm link
+
+      - name: Test os package
+        run: npm run test:go -- os -v -short -skip 'TestRootChtimes|TestChtimesOmit|TestReadFileProc|TestDirFSReadFileProc'
+        env:
+          GODIR: ${{ github.workspace }}/go
+
+      - name: Test net package
+        run: npm run test:go -- net -v -short
+        env:
+          GODIR: ${{ github.workspace }}/go
+
+      - name: Test net/http package
+        run: npm run test:go -- net/http -v -short
+        env:
+          GODIR: ${{ github.workspace }}/go

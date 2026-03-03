@@ -28,7 +28,7 @@ FILTER="${1:-}"
 # ---- Go guests ----
 
 GO_DIR="$SCRIPT_DIR/go"
-GOROOT="$REPO_ROOT/../go"
+GOROOT="${GODIR:-$REPO_ROOT/../go}"
 GO="$GOROOT/bin/go"
 GO_WIT_DIR="$GOROOT/src/internal/wasi/wit"
 
@@ -65,7 +65,8 @@ build_go() {
 # ---- Rust guests ----
 
 RUST_DIR="$SCRIPT_DIR/rust"
-ADAPTER="$REPO_ROOT/../wasmtime/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.wasm"
+WASMTIME_DIR="${WASMTIME_DIR:-$REPO_ROOT/../wasmtime}"
+ADAPTER="$WASMTIME_DIR/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.wasm"
 
 build_rust() {
   [ -d "$RUST_DIR" ] || return

@@ -4,7 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SRC=$(find "$REPO_ROOT/../wasmtime/target" -path "*/test-programs-artifacts-*/out/wasm32-wasip1/debug" -type d | head -1)
+WASMTIME_DIR="${WASMTIME_DIR:-$REPO_ROOT/../wasmtime}"
+SRC=$(find "$WASMTIME_DIR/target" -path "*/test-programs-artifacts-*/out/wasm32-wasip1/debug" -type d | head -1)
 DEST="$SCRIPT_DIR/out/wasmtime-p3"
 mkdir -p "$DEST"
 

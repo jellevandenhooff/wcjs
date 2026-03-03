@@ -5,12 +5,13 @@
 set -eo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GODIR="$REPO_ROOT/../go"
+GODIR="${GODIR:-$REPO_ROOT/../go}"
 export GOROOT="$GODIR"
 export GOOS=wasip3
 export GOARCH=wasm32
 export GOWASIRUNTIME=wasmtime
-export WASMTIME="$REPO_ROOT/../wasmtime/target/release/wasmtime"
+WASMTIME_DIR="${WASMTIME_DIR:-$REPO_ROOT/../wasmtime}"
+export WASMTIME="$WASMTIME_DIR/target/release/wasmtime"
 export PATH="$GODIR/lib/wasm:$PATH"
 
 pkg="$1"; shift
