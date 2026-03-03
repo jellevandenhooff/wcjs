@@ -223,30 +223,37 @@ export async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const filter = args.length > 0 ? args.join(' ') : undefined;
 
-  // When tracing, force sequential execution so output is not interleaved
-  // between suites. Streaming mode prints lines immediately.
+  // When tracing, force sequential + streaming so output is not interleaved.
   const concurrency = tracing ? 1 : parseInt(process.env.TEST_CONCURRENCY || '8', 10);
   const streaming = concurrency === 1;
 
-  // Run top-level suites in parallel, buffer output per suite
-  const suiteResults = await parallelMap(
-    rootSuite.suites,
+  // Run top-level suites in parallel, buffer output per suite.
+  // Flush completed results in registration order as the head completes
+  // (like `go test` — parallel execution, ordered output).
+  const suiteResults: SuiteResult[] = new Array(rootSuite.suites.length);
+  const done: boolean[] = new Array(rootSuite.suites.length).fill(false);
+  let printHead = 0;
+
+  const flushCompleted = () => {
+    while (printHead < done.length && done[printHead]) {
+      const result = suiteResults[printHead]!;
+      for (const line of result.lines) console.log(line);
+      printHead++;
+    }
+  };
+
+  await parallelMap(
+    rootSuite.suites.map((suite, i) => ({ suite, i })),
     concurrency,
-    async (suite) => {
+    async ({ suite, i }) => {
       const result: SuiteResult = { passed: 0, failed: 0, skipped: 0, errors: [], lines: [] };
       await runSuite(suite, '', result, filter, tracing, streaming);
+      suiteResults[i] = result;
+      done[i] = true;
+      if (!streaming) flushCompleted();
       return result;
     },
   );
-
-  // Print buffered output in registration order (streaming mode already printed)
-  if (!streaming) {
-    for (const result of suiteResults) {
-      // Skip suites that produced no output (all filtered out)
-      if (result.lines.length === 0) continue;
-      for (const line of result.lines) console.log(line);
-    }
-  }
 
   // Totals
   let passed = 0, failed = 0, skipped = 0;

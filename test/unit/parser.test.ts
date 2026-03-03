@@ -18,7 +18,17 @@ function compileWat(watPath: string): Uint8Array {
   return new Uint8Array(result);
 }
 
+// TODO: Remove once wasm-tools supports the new threading builtin names.
+const WASM_TOOLS_COMPAT: [string, string][] = [
+  ['thread.yield-to', 'thread.yield-to-suspended'],
+  ['thread.switch-to', 'thread.suspend-to'],
+  ['thread.resume-later', 'thread.unsuspend'],
+];
+
 function compileWatText(watText: string): Uint8Array {
+  for (const [newName, oldName] of WASM_TOOLS_COMPAT) {
+    watText = watText.replaceAll(newName, oldName);
+  }
   const result = execSync('wasm-tools parse -', {
     input: Buffer.from(watText),
     maxBuffer: 10 * 1024 * 1024,
@@ -220,22 +230,10 @@ const wastFiles = existsSync(specDir)
   ? readdirSync(specDir).filter(f => f.endsWith('.wast')).sort()
   : [];
 
-// TODO: Update wasm-tools to a version that supports the new threading builtin names
-// (thread.yield-to, thread.switch-to, thread.resume-later). Until then, tests using
-// these builtins will fail wasm-tools parse and be skipped.
-const WASM_TOOLS_SKIP = new Set([
-  'trap-if-block-and-sync', // uses thread.yield-to, thread.switch-to, thread.resume-later
-]);
-
 describe('Parser: Spec WAST round-trip', () => {
   for (const wastFile of wastFiles) {
     const wastPath = resolve(specDir, wastFile);
     const name = basename(wastFile, '.wast');
-
-    if (WASM_TOOLS_SKIP.has(name)) {
-      it.skip(`${name} (wasm-tools does not support new threading builtin names)`, () => {});
-      continue;
-    }
 
     const componentText = extractComponentFromWast(wastPath);
     if (!componentText) {
