@@ -2,9 +2,13 @@
   "name": "@jellevdh/wcjs",
   "version": "0.1.1",
   "license": "(MIT OR Apache-2.0)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jellevandenhooff/wcjs.git"
+  },
   "type": "module",
   "bin": {
-    "wcjs": "./bin/wcjs.js"
+    "wcjs": "bin/wcjs.js"
   },
   "exports": {
     "./runtime": {
