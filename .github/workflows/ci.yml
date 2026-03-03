@@ -15,4 +15,5 @@ jobs:
           version: '1.245.1'
       - run: npm ci
       - run: npm run check
+      - run: npm run build
       - run: npm test
