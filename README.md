@@ -14,7 +14,6 @@ Implements the full [async component model](https://github.com/WebAssembly/compo
 | Dependencies | Zero. Parser, codegen, and runtime all from scratch in TypeScript | Compiles wasmtime-environ and other Rust crates to Wasm for use in its JS-based compiler |
 | Language | Fully TypeScript (even generated code) | Mix of JavaScript and Rust |
 | Generated size | Small. Generated code calls into a shared typed runtime (`@jellevdh/wcjs/runtime`) | Large. Each component gets its own copy of lift/lower helpers |
-| JSPI | Optional, for sync-calling-async (though most guests need it) | — |
 | JS components | No, embedding/running Wasm components only | Yes, can create components from JS |
 
 > **Note:** Currently Node.js only — the WASI host implementation uses low-level Node APIs (net, fs, etc.). Deno and Bun are not yet supported.
@@ -40,20 +39,7 @@ Tests:
 
 ### Async component model
 
-Full implementation of the [async component model](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Concurrency.md). Supported canon builtins:
-
-| Category | Builtins |
-|---|---|
-| Lifting and lowering | `canon lift` (sync, async stackless, async stackful), `canon lower` (sync, async) |
-| Tasks | `task.return`, `task.cancel`, `context.get`, `context.set` |
-| Subtasks | `subtask.drop`, `subtask.cancel` |
-| Streams | `stream.new`, `stream.read`, `stream.write`, `stream.cancel-read`, `stream.cancel-write`, `stream.drop-readable`, `stream.drop-writable` |
-| Futures | `future.new`, `future.read`, `future.write`, `future.cancel-read`, `future.cancel-write`, `future.drop-readable`, `future.drop-writable` |
-| Waitable sets | `waitable-set.new`, `waitable-set.wait`, `waitable-set.poll`, `waitable-set.drop`, `waitable.join` |
-| Backpressure | `backpressure.inc`, `backpressure.dec` |
-| Resources | `resource.new`, `resource.drop`, `resource.rep` |
-| Error contexts | `error-context.new`, `error-context.debug-message`, `error-context.drop` |
-| Threads | `thread.new-indirect`, `thread.index`, `thread.yield`, `thread.suspend`, `thread.switch-to`, `thread.yield-to`, `thread.suspend-to`, `thread.resume-later` |
+Full implementation of the [async component model](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Concurrency.md): sync/async lifting and lowering, streams, futures, tasks, subtasks, waitable sets, backpressure, resources, error contexts, and cooperative threading.
 
 Tested by all 24 spec WAST tests from the [component-model repo](https://github.com/WebAssembly/component-model/tree/main/test/async), as well as indirectly by the WASI P3 tests above which exercise the async component model end-to-end. Tracks the component-model spec at [`c7176a5`](https://github.com/WebAssembly/component-model/commit/c7176a512c0bbe4654849f4ba221c1a71c7cf514) (2026-02-17).
 
