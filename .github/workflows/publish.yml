@@ -20,6 +20,6 @@ jobs:
         with:
           version: '1.245.1'
       - run: npm ci
-      - run: npm test
       - run: npm run build
+      - run: npm test
       - run: npm publish --access public --provenance
