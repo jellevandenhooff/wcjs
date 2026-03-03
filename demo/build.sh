@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ADAPTER=../wasmtime/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.wasm
+ADAPTER=${WASI_ADAPTER:-../wasmtime/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.wasm}
 
 echo "==> Building Rust guest..."
 cargo build --target=wasm32-wasip1 --manifest-path demo/guest/Cargo.toml
