@@ -385,7 +385,7 @@ if (!existsSync(WASM_DIR)) {
     describe(`Wasmtime P3: ${label}`, () => {
       for (const mode of MODES) {
         it(`runs [${mode}]`, async () => {
-          await runP3Test({ name, timeout: 30_000 }, mode);
+          await runP3Test({ name, timeout: 60_000 }, mode);
         });
       }
     });

@@ -202,7 +202,7 @@ P3_TRACE=1 npm test -- test1-callback
 
 ### Full test setup
 
-To run all tests (including Go guest and wasmtime P3 integration tests), clone sibling repos into the same parent directory:
+To run all tests (including Go guest and wasmtime P3 integration tests), clone sibling repos into the same parent directory. The pinned dependency versions are in [`deps.env`](deps.env) — use these commits for reproducible builds:
 
 ```
 parent/
@@ -213,16 +213,19 @@ parent/
 ```
 
 ```bash
+# Load pinned commit SHAs
+source deps.env
+
 # Component model spec (reference only)
 git clone https://github.com/WebAssembly/component-model ../component-model
 
 # Go wasip3 fork — build the toolchain
-git clone -b wasip3-prototype https://github.com/jellevandenhooff/go ../go
-cd ../go/src && ./make.bash && cd -
+git clone https://github.com/jellevandenhooff/go ../go
+cd ../go && git checkout $GO_COMMIT && cd src && ./make.bash && cd -
 
 # Wasmtime — build test programs
 git clone https://github.com/bytecodealliance/wasmtime ../wasmtime
-cd ../wasmtime && git submodule update --init && cargo test -p test-programs-artifacts --no-run && cd -
+cd ../wasmtime && git checkout $WASMTIME_COMMIT && git submodule update --init && cargo test -p test-programs-artifacts --no-run && cd -
 ```
 
 Then build the guest test components:

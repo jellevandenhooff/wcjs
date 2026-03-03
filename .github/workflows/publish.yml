@@ -1,25 +1,27 @@
 name: Publish to npm
 
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
   publish:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 25
           registry-url: https://registry.npmjs.org
-      - uses: bytecodealliance/actions/wasm-tools/setup@v1
-        with:
-          version: '1.245.1'
       - run: npm ci
       - run: npm run build
-      - run: npm test
       - run: npm publish --access public --provenance

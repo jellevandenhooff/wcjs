@@ -13,10 +13,12 @@
   "exports": {
     "./runtime": {
       "types": "./dist/src/runtime/index.d.ts",
+      "development": "./src/runtime/index.ts",
       "import": "./dist/src/runtime/index.js"
     },
     "./wasi": {
       "types": "./dist/src/wasi/index.d.ts",
+      "development": "./src/wasi/index.ts",
       "import": "./dist/src/wasi/index.js"
     }
   },
@@ -30,7 +32,7 @@
   "scripts": {
     "build": "tsgo -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
-    "test": "node --experimental-transform-types test/run.ts",
+    "test": "node --conditions development --experimental-transform-types test/run.ts",
     "check": "tsgo --noEmit",
     "gen-host-types": "wcjs gen-types ../wasmtime/crates/wasi/src/p3/wit/deps ../wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit --p2 ../wasmtime/crates/wasi/src/p2/wit/deps -o src/wasi/wasi-types.generated.ts",
     "test:go": "bash test/gotest.sh",

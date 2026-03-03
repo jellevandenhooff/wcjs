@@ -5,7 +5,7 @@
 set -eo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-GODIR="$REPO_ROOT/../go"
+GODIR="${GODIR:-$REPO_ROOT/../go}"
 export GOROOT="$GODIR"
 export GOOS=wasip3
 export GOARCH=wasm32
