@@ -1,16 +1,16 @@
 # Publishing to npm
 
-Tag and push:
+Create a version bump PR:
 
 ```bash
-# Update version in package.json (patch/minor/major)
-npm version patch   # or: npm version minor / npm version major
-
-# Push the commit and tag
-git push && git push --tags
+git checkout -b bump-x.y.z
+npm version patch --no-git-tag-version   # or: minor / major
+git add package.json package-lock.json
+git commit -m "x.y.z"
+git push -u origin bump-x.y.z
 ```
 
-This triggers the GitHub Actions workflow which runs tests, builds, and publishes to npm.
+Open a PR, get it reviewed, and merge. On merge, CI automatically creates the `vx.y.z` tag, which triggers the publish workflow.
 
 ## Publishing manually
 
