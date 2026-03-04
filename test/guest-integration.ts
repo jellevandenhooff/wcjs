@@ -219,7 +219,7 @@ if (!existsSync(GUEST_OUT)) {
 
     // Generic fallback for any other guest
     for (const name of guestDirs) {
-      if (['go-hello', 'go-args-env', 'go-clock-sleep', 'go-filesystem', 'go-sockets', 'rust-types-test'].includes(name)) continue;
+      if (['go-hello', 'go-args-env', 'go-clock-sleep', 'go-filesystem', 'go-sockets', 'rust-types-test', 'rust-multi-export', 'rust-async-types'].includes(name)) continue;
       describe(`Guest: ${name}`, () => {
         for (const mode of MODES) {
           it(`run [${mode}]`, async () => {

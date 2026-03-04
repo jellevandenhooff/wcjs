@@ -1,5 +1,5 @@
 [package]
-name = "types-test"
+name = "async-types"
 edition = "2021"
 
 [lib]

@@ -324,10 +324,12 @@ function advanceImportIndexSpaces(idx: IndexSpaces, imp: ComponentImport): void 
   }
 }
 
-/** Advance index spaces for a component export (type exports create new type indices). */
+/** Advance index spaces for a component export. Exports create new indices
+ *  in their sort's index space (the exported item gets an additional alias). */
 function advanceExportIndexSpaces(idx: IndexSpaces, exp: ComponentExport): void {
-  if (exp.sort === 'type') {
-    idx.compTypes++;
+  switch (exp.sort) {
+    case 'type': idx.compTypes++; break;
+    case 'instance': idx.compInstances++; break;
   }
 }
 

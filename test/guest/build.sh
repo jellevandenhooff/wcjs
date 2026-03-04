@@ -76,24 +76,34 @@ build_rust() {
     return
   fi
 
+  # Collect members to build (respecting filter)
+  local members=()
   for dir in "$RUST_DIR"/*/; do
     [ -d "$dir" ] || continue
     local name="$(basename "$dir")"
-
     if [ -n "$FILTER" ] && [[ "$name" != *"$FILTER"* ]] && [[ "rust" != *"$FILTER"* ]]; then
       continue
     fi
+    members+=("$name")
+  done
+  [ ${#members[@]} -eq 0 ] && return
 
+  # Build all matching members via workspace
+  local build_args=(--target=wasm32-wasip1)
+  for name in "${members[@]}"; do
+    build_args+=(--package "$name")
+    echo "building rust/$name ..."
+  done
+  cargo build "${build_args[@]}" --manifest-path "$RUST_DIR/Cargo.toml" 2>&1 | sed 's/^/  /'
+
+  # Componentize each built wasm
+  for name in "${members[@]}"; do
     local dest="$OUT_DIR/rust-$name"
     mkdir -p "$dest"
-    echo "building rust/$name ..."
 
-    cargo build --target=wasm32-wasip1 --manifest-path "$dir/Cargo.toml" 2>&1 | sed 's/^/  /'
-
-    # Find the cdylib output (name may have hyphens→underscores)
     local crate_name
-    crate_name=$(grep '^name' "$dir/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/' | tr '-' '_')
-    local wasm_path="$dir/target/wasm32-wasip1/debug/${crate_name}.wasm"
+    crate_name=$(echo "$name" | tr '-' '_')
+    local wasm_path="$RUST_DIR/target/wasm32-wasip1/debug/${crate_name}.wasm"
 
     if [ ! -f "$wasm_path" ]; then
       echo "error: expected wasm at $wasm_path" >&2

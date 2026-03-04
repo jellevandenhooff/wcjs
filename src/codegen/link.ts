@@ -2103,6 +2103,10 @@ function processExport(
     const compInst = scope.compInstances[exp.index];
     if (!compInst) return;
 
+    // Exports create a new alias in the instance index space
+    const newIdx = scope.compInstances.length;
+    scope.compInstances[newIdx] = compInst;
+
     if (compInst.tag === 'mergedExports') {
       // New path: merged exports from nested component
       const funcMap = new Map<string, ExportedFunc>();
@@ -2374,14 +2378,18 @@ function classifyTaskReturn(
   compTypes: ComponentTypeEntry[],
 ): TaskReturnKind {
   if (result === null) return 'none';
-  if (result.tag === 'primitive') return 'primitive';
 
-  const entry = compTypes[result.index];
-  if (entry?.tag === 'defined' && entry.type.tag === 'result') {
-    return 'resultType';
+  // Check for void result<_, _> first — uses single-value discriminant trampoline
+  if (result.tag !== 'primitive') {
+    const entry = compTypes[result.index];
+    if (entry?.tag === 'defined' && entry.type.tag === 'result'
+        && !entry.type.ok && !entry.type.err) {
+      return 'resultType';
+    }
   }
 
-  // Check if this type flattens to multiple values
+  // Check if this type flattens to multiple values (e.g. string → [ptr, len],
+  // result<T, E> → [discriminant, ...payload])
   const flatTypes = flattenType(result, compTypes);
   if (flatTypes.length > 1) {
     return 'flatValues';

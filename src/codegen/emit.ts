@@ -2492,8 +2492,6 @@ class EmitContext {
     const argsExpr = `[${flatArgs.join(', ')}]`;
 
     if (funcInfo.isAsync) {
-      // Async export: task.return trampoline already lifts the result,
-      // so we only need to lower params and pass them through.
       const callbackExpr = funcInfo.callbackIdx >= 0
         ? `callback_${funcInfo.callbackIdx}`
         : 'undefined';
@@ -2505,6 +2503,15 @@ class EmitContext {
           expr += `.then(r => { ${stateVar}.liftFutureEnd(${funcInfo.liftResult.tableIdx}, r${this.ts(' as number')}); return r; })`;
         } else if (funcInfo.liftResult.tag === 'liftStreamEnd') {
           expr += `.then(r => { ${stateVar}.liftStreamEnd(${funcInfo.liftResult.tableIdx}, r${this.ts(' as number')}); return r; })`;
+        }
+      }
+      // Lift result from flat values resolved by task.return trampoline.
+      // Only for `flatValues` trampoline (multi-flat types like string → [ptr, len],
+      // result<T, E> → [discriminant, ...payload]).
+      // `resultType` (void result) and `primitive` trampolines already lift.
+      if (info.resultType !== null && info.resultFlatTypes.length > 1) {
+        if (this.emitAsyncFlatLift(info.resultType!, memIdx)) {
+          expr += `.then(_liftAsync)`;
         }
       }
       this.line(`return ${expr};`);
@@ -2708,6 +2715,32 @@ class EmitContext {
       }
     }
     return rawExpr;
+  }
+
+  /** Emit a `_liftAsync` function that lifts a flat value array from the
+   *  `flatValues` trampoline into the appropriate JS type.
+   *  Returns true if a lift function was emitted. */
+  private emitAsyncFlatLift(ty: HostValType, memIdx: number | null): boolean {
+    const flatTypes = flattenHostValType(ty);
+    if (flatTypes.length <= 1) return false;
+
+    const cast = this.ts(' as number[]');
+
+    // Generic list<T> (non-u8) needs statement-based lifting (loop)
+    if (typeof ty === 'object' && ty.tag === 'list' && ty.elem !== 'u8') {
+      this._liftId = 0;
+      this.line(`const _liftAsync = (_rv${this.ts(': unknown')})${this.ts(': unknown')} => {`);
+      this.genLiftListFromMemory(ty, memIdx!, `(_rv${cast})[0]`, `(_rv${cast})[1]`, '_result', '  ');
+      this.line(`  return _result;`);
+      this.line(`};`);
+      return true;
+    }
+
+    // All other multi-flat types: use genLiftFromFlat for an inline expression
+    const flatExprs = flatTypes.map((_: string, i: number) => `(_rv${cast})[${i}]`);
+    const liftExpr = this.genLiftFromFlat(ty, flatExprs, memIdx);
+    this.line(`const _liftAsync = (_rv${this.ts(': unknown')})${this.ts(': unknown')} => ${liftExpr};`);
+    return true;
   }
 
   // -------------------------------------------------------------------
