@@ -1,0 +1,20 @@
+package test:multi;
+
+interface host {
+  double: async func(n: u32) -> u32;
+}
+
+interface math {
+  add: func(a: u32, b: u32) -> u32;
+  double-add: async func(a: u32, b: u32) -> u32;
+}
+
+interface greeter {
+  greet: async func(name: string) -> string;
+}
+
+world multi-export {
+  import host;
+  export math;
+  export greeter;
+}

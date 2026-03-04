@@ -8,4 +8,4 @@ dist/
 demo/generated/
 demo/dist/
 demo/guest/target/
-test/guest/rust/*/target/
+test/guest/rust/target/

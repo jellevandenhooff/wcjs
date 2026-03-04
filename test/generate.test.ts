@@ -17,93 +17,109 @@ const WAT_DIR = join(__dirname, 'wat');
 const GEN_OUT = join(__dirname, 'out', 'generate');
 const GUEST_OUT = join(__dirname, 'guest', 'out');
 
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+interface GenerateOpts {
+  jspiMode?: boolean;
+}
+
+/** Generate standalone JS + .d.ts from a component wasm, write to outDir. */
+function generateAndWrite(
+  name: string, wasmBytes: Uint8Array, opts: GenerateOpts = {},
+): string {
+  const outDir = join(GEN_OUT, name);
+  mkdirSync(outDir, { recursive: true });
+
+  const parsed = parseComponent(wasmBytes);
+  const result = generateCode(parsed, name, {
+    jspiMode: opts.jspiMode ?? false,
+    mode: 'standalone',
+  });
+
+  writeFileSync(join(outDir, `${name}.js`), result.source);
+  assert.ok(result.declarations, 'declarations should be present');
+  writeFileSync(join(outDir, `${name}.d.ts`), result.declarations);
+  for (const mod of result.coreModules) {
+    const modPath = join(outDir, mod.fileName);
+    mkdirSync(dirname(modPath), { recursive: true });
+    writeFileSync(modPath, mod.bytes);
+  }
+  return outDir;
+}
+
+/** Type-check a test script against the generated .d.ts. */
+async function typeCheck(outDir: string, testScript: string): Promise<void> {
+  const testTsPath = join(outDir, '_test.ts');
+  writeFileSync(testTsPath, testScript);
+
+  await spawnAsync('npx', [
+    'tsgo', '--ignoreConfig',
+    '--module', 'ES2022', '--target', 'ES2022',
+    '--moduleResolution', 'bundler',
+    '--allowImportingTsExtensions', 'true',
+    '--rewriteRelativeImportExtensions', 'true',
+    '--declaration', 'false', '--sourceMap', 'false',
+    '--strict', 'true', '--skipLibCheck', 'true',
+    '--rootDir', '.',
+    '--noEmit',
+    testTsPath,
+  ], { cwd: ROOT });
+}
+
+/** Import the generated JS module and instantiate it. */
+async function importAndInstantiate(
+  outDir: string, name: string, imports: Record<string, unknown>,
+): Promise<Record<string, any>> {
+  const jsUrl = pathToFileURL(join(outDir, `${name}.js`)).href;
+  const module = await import(jsUrl + `?t=${Date.now()}`);
+  return module.instantiate(imports);
+}
+
+/** Read a guest component wasm, or return null if not built. */
+function readGuest(guestName: string): Uint8Array | null {
+  const p = join(GUEST_OUT, guestName, 'component.wasm');
+  return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+}
+
 describe('generate', () => {
   it('produces .js + .d.ts that type-check and run (WAT)', async () => {
     const name = 'test1-callback';
-    const outDir = join(GEN_OUT, name);
-    mkdirSync(outDir, { recursive: true });
 
     // Compile WAT → wasm
     const watPath = join(WAT_DIR, `${name}.wat`);
-    const wasmPath = join(outDir, `${name}.wasm`);
+    const wasmPath = join(GEN_OUT, name, `${name}.wasm`);
+    mkdirSync(dirname(wasmPath), { recursive: true });
     await compileWat(watPath, wasmPath);
 
-    // Generate standalone output
     const wasmBytes = new Uint8Array(readFileSync(wasmPath));
-    const parsed = parseComponent(wasmBytes);
-    const result = generateCode(parsed, name, { jspiMode: false, mode: 'standalone' });
+    const outDir = generateAndWrite(name, wasmBytes);
 
-    // Write generated files
-    writeFileSync(join(outDir, `${name}.js`), result.source);
-    assert.ok(result.declarations, 'declarations should be present');
-    writeFileSync(join(outDir, `${name}.d.ts`), result.declarations);
-    for (const mod of result.coreModules) {
-      const modPath = join(outDir, mod.fileName);
-      mkdirSync(dirname(modPath), { recursive: true });
-      writeFileSync(modPath, mod.bytes);
-    }
-
-    // Type-check the .d.ts
-    const testScript = `import { instantiate } from './${name}.js';
+    await typeCheck(outDir, `import { instantiate } from './${name}.js';
 export async function main() {
   const instance = await instantiate({});
   return instance;
 }
-`;
-    const testTsPath = join(outDir, '_test.ts');
-    writeFileSync(testTsPath, testScript);
+`);
 
-    await spawnAsync('npx', [
-      'tsgo', '--ignoreConfig',
-      '--module', 'ES2022', '--target', 'ES2022',
-      '--moduleResolution', 'bundler',
-      '--allowImportingTsExtensions', 'true',
-      '--rewriteRelativeImportExtensions', 'true',
-      '--declaration', 'false', '--sourceMap', 'false',
-      '--strict', 'true', '--skipLibCheck', 'true',
-      '--rootDir', '.',
-      '--noEmit',
-      testTsPath,
-    ], { cwd: ROOT });
+    const instance = await importAndInstantiate(outDir, name, {});
 
-    // Run the generated module
-    const jsUrl = pathToFileURL(join(outDir, `${name}.js`)).href;
-    const module = await import(jsUrl + `?t=${Date.now()}`);
-    const instance = await module.instantiate({});
-
-    // Find and run the export
     const runKey = Object.keys(instance).find(k => k !== '$states' && k !== '$destroy');
     assert.ok(runKey, 'should have an export');
-    const result2 = await instance[runKey].run();
-    assert.deepStrictEqual(result2, { tag: 'ok' });
+    const result = await instance[runKey].run();
+    assert.deepStrictEqual(result, { tag: 'ok' });
     if (instance.$destroy) instance.$destroy();
   });
 
   // Test with a full WASI guest component (go-hello)
-  const goHelloPath = join(GUEST_OUT, 'go-hello', 'component.wasm');
-  if (existsSync(goHelloPath)) {
+  const goHelloBytes = readGuest('go-hello');
+  if (goHelloBytes) {
     it('produces .js + .d.ts that type-check and run (WASI guest)', async () => {
       const name = 'go-hello';
-      const outDir = join(GEN_OUT, name);
-      mkdirSync(outDir, { recursive: true });
+      const outDir = generateAndWrite(name, goHelloBytes, { jspiMode: true });
 
-      // Generate standalone output
-      const wasmBytes = new Uint8Array(readFileSync(goHelloPath));
-      const parsed = parseComponent(wasmBytes);
-      const result = generateCode(parsed, name, { jspiMode: true, mode: 'standalone' });
-
-      // Write generated files
-      writeFileSync(join(outDir, `${name}.js`), result.source);
-      assert.ok(result.declarations, 'declarations should be present');
-      writeFileSync(join(outDir, `${name}.d.ts`), result.declarations);
-      for (const mod of result.coreModules) {
-        const modPath = join(outDir, mod.fileName);
-        mkdirSync(dirname(modPath), { recursive: true });
-        writeFileSync(modPath, mod.bytes);
-      }
-
-      // Type-check the .d.ts with WasiHost
-      const testScript = `import type { Imports } from './${name}.js';
+      await typeCheck(outDir, `import type { Imports } from './${name}.js';
 import { instantiate } from './${name}.js';
 import type { WasiHost } from '@jellevdh/wcjs/wasi';
 
@@ -113,24 +129,8 @@ export async function main(imports: Imports) {
   const instance = await instantiate(imports);
   return instance;
 }
-`;
-      const testTsPath = join(outDir, '_test.ts');
-      writeFileSync(testTsPath, testScript);
+`);
 
-      await spawnAsync('npx', [
-        'tsgo', '--ignoreConfig',
-        '--module', 'ES2022', '--target', 'ES2022',
-        '--moduleResolution', 'bundler',
-        '--allowImportingTsExtensions', 'true',
-        '--rewriteRelativeImportExtensions', 'true',
-        '--declaration', 'false', '--sourceMap', 'false',
-        '--strict', 'true', '--skipLibCheck', 'true',
-        '--rootDir', '.',
-        '--noEmit',
-        testTsPath,
-      ], { cwd: ROOT });
-
-      // Run the generated module
       const stdoutBuf: string[] = [];
       const wasiHost = createWasiHost({
         args: ['go-hello'],
@@ -139,9 +139,7 @@ export async function main(imports: Imports) {
         stderr: [],
       });
 
-      const jsUrl = pathToFileURL(join(outDir, `${name}.js`)).href;
-      const module = await import(jsUrl + `?t=${Date.now()}`);
-      const instance = await module.instantiate(wasiHost);
+      const instance = await importAndInstantiate(outDir, name, wasiHost);
       wasiHost._ctx.state = instance.$states[0];
 
       const runKey = Object.keys(instance).find(k => k.startsWith('wasi:cli/run@'));
@@ -154,30 +152,13 @@ export async function main(imports: Imports) {
   }
 
   // Test with custom WIT types (Rust guest with records, enums, lists, results, async)
-  const typesTestPath = join(GUEST_OUT, 'rust-types-test', 'component.wasm');
-  if (existsSync(typesTestPath)) {
+  const typesTestBytes = readGuest('rust-types-test');
+  if (typesTestBytes) {
     it('produces .js + .d.ts that type-check and run (custom WIT)', async () => {
       const name = 'types-test';
-      const outDir = join(GEN_OUT, name);
-      mkdirSync(outDir, { recursive: true });
+      const outDir = generateAndWrite(name, typesTestBytes, { jspiMode: true });
 
-      // Generate standalone output with JSPI (required for Rust async guests)
-      const wasmBytes = new Uint8Array(readFileSync(typesTestPath));
-      const parsed = parseComponent(wasmBytes);
-      const result = generateCode(parsed, name, { jspiMode: true, mode: 'standalone' });
-
-      // Write generated files
-      writeFileSync(join(outDir, `${name}.js`), result.source);
-      assert.ok(result.declarations, 'declarations should be present');
-      writeFileSync(join(outDir, `${name}.d.ts`), result.declarations);
-      for (const mod of result.coreModules) {
-        const modPath = join(outDir, mod.fileName);
-        mkdirSync(dirname(modPath), { recursive: true });
-        writeFileSync(modPath, mod.bytes);
-      }
-
-      // Type-check the .d.ts — verify typed export signatures
-      const testScript = `import type { Imports } from './${name}.js';
+      await typeCheck(outDir, `import type { Imports } from './${name}.js';
 import { instantiate } from './${name}.js';
 import type { WasiHost } from '@jellevdh/wcjs/wasi';
 
@@ -196,24 +177,8 @@ export async function main(imports: Imports) {
 
   return { s, d, c, p, l, r, n };
 }
-`;
-      const testTsPath = join(outDir, '_test.ts');
-      writeFileSync(testTsPath, testScript);
+`);
 
-      await spawnAsync('npx', [
-        'tsgo', '--ignoreConfig',
-        '--module', 'ES2022', '--target', 'ES2022',
-        '--moduleResolution', 'bundler',
-        '--allowImportingTsExtensions', 'true',
-        '--rewriteRelativeImportExtensions', 'true',
-        '--declaration', 'false', '--sourceMap', 'false',
-        '--strict', 'true', '--skipLibCheck', 'true',
-        '--rootDir', '.',
-        '--noEmit',
-        testTsPath,
-      ], { cwd: ROOT });
-
-      // Set up host imports: WASI stubs + custom host functions
       const logs: string[] = [];
       const wasiHost = createWasiHost({ stdout: [], stderr: [] });
 
@@ -232,49 +197,128 @@ export async function main(imports: Imports) {
         },
       };
 
-      const jsUrl = pathToFileURL(join(outDir, `${name}.js`)).href;
-      const module = await import(jsUrl + `?t=${Date.now()}`);
-      const instance = await module.instantiate(imports);
+      const instance = await importAndInstantiate(outDir, name, imports);
       wasiHost._ctx.state = instance.$states[0];
 
       const api = instance['test:types/api'];
       assert.ok(api, 'should have test:types/api export');
 
-      // Test string passing
       assert.equal(await api.greet('World'), 'Hello, World!');
-
-      // Test record passing + f64
       const dist = await api.computeDistance({ x: 0, y: 0 }, { x: 3, y: 4 });
       assert.equal(dist, 5);
-
-      // Test enum passing
       assert.equal(await api.colorToNumber('red'), 0xFF0000);
       assert.equal(await api.colorToNumber('green'), 0x00FF00);
       assert.equal(await api.colorToNumber('blue'), 0x0000FF);
-
-      // Test record with string + u32
       assert.equal(await api.describePerson({ name: 'Alice', age: 30 }), 'Alice is 30 years old');
-
-      // Test list passing
       assert.deepStrictEqual(await api.reverseList([1, 2, 3, 4, 5]), [5, 4, 3, 2, 1]);
 
-      // Test result type (ok case)
       const divOk = await api.safeDivide(10, 4);
       assert.equal(divOk.tag, 'ok');
       assert.equal(divOk.val, 2.5);
-
-      // Test result type (err case)
       const divErr = await api.safeDivide(1, 0);
       assert.equal(divErr.tag, 'err');
       assert.equal(divErr.val, 'division by zero');
 
-      // Test async export (calls async-double import)
-      const sum = await api.doubleSum(3, 4);
-      assert.equal(sum, 14); // 3*2 + 4*2 = 14
-
-      // Verify host imports were called
+      assert.equal(await api.doubleSum(3, 4), 14); // 3*2 + 4*2
       assert.ok(logs.some(l => l.includes('scaled')), 'scale-point import should have been called');
       assert.ok(logs.some(l => l.includes('sum before reverse')), 'sum-list import should have been called');
+
+      if (instance.$destroy) instance.$destroy();
+    });
+  }
+
+  // Test component with multiple exported interfaces (regression: export index
+  // space tracking — each instance export creates a new index, so the second
+  // exported interface must resolve correctly).
+  const multiExportBytes = readGuest('rust-multi-export');
+  if (multiExportBytes) {
+    it('produces .js + .d.ts that type-check and run (multi-export)', async () => {
+      const name = 'multi-export';
+      const outDir = generateAndWrite(name, multiExportBytes, { jspiMode: true });
+
+      await typeCheck(outDir, `import type { Imports } from './${name}.js';
+import { instantiate } from './${name}.js';
+import type { WasiHost } from '@jellevdh/wcjs/wasi';
+
+export async function main(imports: Imports) {
+  const instance = await instantiate(imports);
+  const math = instance['test:multi/math'];
+  const greeter = instance['test:multi/greeter'];
+
+  const sum: number = await math.add(1, 2);
+  const dsum: number = await math.doubleAdd(3, 4);
+  const msg: string = await greeter.greet('World');
+
+  return { sum, dsum, msg };
+}
+`);
+
+      const wasiHost = createWasiHost({ stdout: [], stderr: [] });
+      const imports = {
+        ...wasiHost,
+        'test:multi/host': {
+          double: async (n: number) => n * 2,
+        },
+      };
+
+      const instance = await importAndInstantiate(outDir, name, imports);
+      wasiHost._ctx.state = instance.$states[0];
+
+      const math = instance['test:multi/math'];
+      const greeter = instance['test:multi/greeter'];
+      assert.ok(math, 'should have test:multi/math export');
+      assert.ok(greeter, 'should have test:multi/greeter export');
+
+      assert.equal(await math.add(3, 4), 7);
+      assert.equal(await math.doubleAdd(5, 7), 24); // 5*2 + 7*2
+      const greeting = await greeter.greet('World');
+      assert.equal(greeting, 'Hello, World! (10)'); // len("World")=5, 5*2=10
+
+      if (instance.$destroy) instance.$destroy();
+    });
+  }
+
+  // Test async exports returning multi-flat types (record, tuple, list, option, string, result)
+  const asyncTypesBytes = readGuest('rust-async-types');
+  if (asyncTypesBytes) {
+    it('produces .js + .d.ts that type-check and run (async flat lifting)', async () => {
+      const name = 'async-types';
+      const outDir = generateAndWrite(name, asyncTypesBytes, { jspiMode: true });
+
+      await typeCheck(outDir, `import type { Imports } from './${name}.js';
+import { instantiate } from './${name}.js';
+import type { WasiHost } from '@jellevdh/wcjs/wasi';
+
+export async function main(imports: Imports) {
+  const instance = await instantiate(imports);
+  const api = instance['test:async-types/api'];
+
+  const pt: { x: number; y: number } = await api.getPoint(1.5, 2.5);
+  const pair: [number, number] = await api.getPair(10, 20);
+  const list: number[] = await api.getList();
+  const some: number | null = await api.getMaybe(true);
+  const none: number | null = await api.getMaybe(false);
+  const s: string = await api.getName();
+  const divOk: { tag: 'ok'; val: number } | { tag: 'err'; val: string } = await api.safeDivide(10, 4);
+  const divErr: { tag: 'ok'; val: number } | { tag: 'err'; val: string } = await api.safeDivide(1, 0);
+
+  return { pt, pair, list, some, none, s, divOk, divErr };
+}
+`);
+
+      const wasiHost = createWasiHost({ stdout: [], stderr: [] });
+      const instance = await importAndInstantiate(outDir, name, wasiHost);
+      wasiHost._ctx.state = instance.$states[0];
+
+      const api = instance['test:async-types/api'];
+      assert.ok(api, 'should have test:async-types/api export');
+
+      assert.deepStrictEqual(await api.getPoint(1.5, 2.5), { x: 1.5, y: 2.5 });
+      assert.deepStrictEqual(await api.getPair(10, 20), [10, 20]);
+      assert.deepStrictEqual(await api.getList(), [10, 20, 30, 40, 50]);
+      assert.equal(await api.getMaybe(true), 42);
+      assert.equal(await api.getMaybe(false), null);
+      assert.equal(await api.getName(), 'hello from async');
 
       if (instance.$destroy) instance.$destroy();
     });

@@ -1,5 +1,5 @@
 [package]
-name = "types-test"
+name = "multi-export"
 edition = "2021"
 
 [lib]
@@ -7,3 +7,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wit-bindgen = { workspace = true }
+futures = { workspace = true }

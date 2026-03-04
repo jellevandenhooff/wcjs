@@ -1,0 +1,7 @@
+[workspace]
+members = ["async-types", "multi-export", "types-test"]
+resolver = "2"
+
+[workspace.dependencies]
+wit-bindgen = { version = "0.53.0", features = ["async-spawn"] }
+futures = { version = "0.3", default-features = false, features = ["alloc"] }

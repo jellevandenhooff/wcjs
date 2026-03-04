@@ -1,0 +1,19 @@
+package test:async-types;
+
+interface api {
+  record point {
+    x: f64,
+    y: f64,
+  }
+
+  get-point: async func(x: f64, y: f64) -> point;
+  get-pair: async func(a: u32, b: u32) -> tuple<u32, u32>;
+  get-list: async func() -> list<s32>;
+  get-maybe: async func(present: bool) -> option<u32>;
+  get-name: async func() -> string;
+  safe-divide: async func(a: f64, b: f64) -> result<f64, string>;
+}
+
+world async-types {
+  export api;
+}
