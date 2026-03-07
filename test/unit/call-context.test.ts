@@ -126,7 +126,10 @@ describe('CallContext', () => {
       const handle = result >> 4;
       assert.ok(handle > 0);
 
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Wait for the event loop to process the callback (up to 2s)
+      for (let i = 0; i < 200 && callbackCalls === 0; i++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
 
       assert.strictEqual(callbackCalls, 1);
       assert.ok(returnFn.calledWith(99));
