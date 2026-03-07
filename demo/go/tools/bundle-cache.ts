@@ -196,4 +196,56 @@ writeFileSync(manifestPath, JSON.stringify(cacheFiles));
 console.log(`  Extracted ${cacheFiles.length} files (${(totalCacheSize / 1024 / 1024).toFixed(1)} MB) to ${cacheOutDir}/`);
 console.log(`  Manifest: ${manifestPath}`);
 
+// Build the default hello-world program to discover which cache files it needs.
+// This list is written to gocache-prefetch.json so the browser demo can prefetch
+// just these files instead of all ~400 cache entries.
+console.log('\nDiscovering prefetch set (hello-world build)...');
+
+const accessedFiles = new Set<string>();
+const origResolve = memfs._resolve.bind(memfs);
+memfs._resolve = (parts: string[]) => {
+  const path = parts.join('/');
+  if (path.startsWith('tmp/gocache/')) {
+    accessedFiles.add(path.slice('tmp/gocache/'.length));
+  }
+  return origResolve(parts);
+};
+
+memfs.addFile('/work/main.go', `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello from the browser!")
+	for i := 0; i < 5; i++ {
+		fmt.Printf("  i = %d\\n", i)
+	}
+}
+`);
+memfs.addFile('/work/go.mod', 'module hello\n\ngo 1.27\n');
+memfs.addDir('/out');
+
+const helloArgs = ['go', 'build', '-C', '/work', '-v', '-o', '/out/hello.wasm', '.'];
+const helloHost = createFullHost(helloArgs, goEnv, '/work', stdoutChunks, stderrChunks);
+const helloInstance = await goInstantiate((p: string) => goCoreModules.get(p), helloHost) as any;
+helloHost._ctx.state = helloInstance.$states[0];
+const helloRunKey = Object.keys(helloInstance).find((k: string) => k.startsWith('wasi:cli/run@'))!;
+
+try {
+  const r = await helloInstance[helloRunKey].run();
+  if (r?.tag === 'err') { console.error('Hello build failed'); process.exit(1); }
+} catch (e: any) {
+  const m = e.message?.match(/exit with code (\d+)/);
+  if (m && parseInt(m[1]) !== 0) { console.error('Hello build failed with exit code', m[1]); process.exit(1); }
+  if (!m) { console.error('Error:', e.message); process.exit(1); }
+}
+
+// Filter to only cache files that exist in our extracted set
+const prefetchFiles = cacheFiles.filter(f => accessedFiles.has(f.path));
+const prefetchPath = join(OUTDIR, 'gocache-prefetch.json');
+writeFileSync(prefetchPath, JSON.stringify(prefetchFiles));
+const prefetchSize = prefetchFiles.reduce((s, f) => s + f.size, 0);
+console.log(`  ${prefetchFiles.length} of ${cacheFiles.length} cache files needed (${(prefetchSize / 1024 / 1024).toFixed(1)} MB)`);
+console.log(`  Prefetch manifest: ${prefetchPath}`);
+
 process.exit(0);

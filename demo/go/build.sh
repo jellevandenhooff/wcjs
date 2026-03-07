@@ -57,7 +57,8 @@ TOOLS
 
 # Patch vendored mmap_other.go build constraint to include wasip3
 MMAP_VENDOR="$GOIMPORTS_DIR/vendor/golang.org/x/telemetry/internal/mmap/mmap_other.go"
-sed -i 's/wasip1/wasip1 || wasip3/' "$MMAP_VENDOR"
+# sed -i works differently on macOS vs Linux; use a temp file approach
+sed 's/wasip1/wasip1 || wasip3/' "$MMAP_VENDOR" > "$MMAP_VENDOR.tmp" && mv "$MMAP_VENDOR.tmp" "$MMAP_VENDOR"
 
 GOOS=wasip3 GOARCH=wasm32 GOEXPERIMENT=wasiexec "$GOBIN" build -C "$GOIMPORTS_DIR" -mod=vendor -o "$(pwd)/$OUT/goimports.wasm" golang.org/x/tools/cmd/goimports
 

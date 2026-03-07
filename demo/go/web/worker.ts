@@ -31,6 +31,7 @@ let goInstantiate: Function;
 let goCoreModules: Map<string, WebAssembly.Module>;
 let componentizePrepared: { instantiate: Function; coreModules: Map<string, WebAssembly.Module> };
 let goimportsPrepared: { instantiate: Function; coreModules: Map<string, WebAssembly.Module> };
+let loadPromise: Promise<void> | null = null;
 const componentCache = new Map<string, { instantiate: Function; coreModules: Map<string, WebAssembly.Module> }>();
 
 // Manifest mapping logical → content-hashed filenames
@@ -232,74 +233,99 @@ async function runInstance(prepared: { instantiate: Function; coreModules: Map<s
   return exitCode;
 }
 
-// ---- Init ----
+// ---- Init: just load manifest, everything else deferred ----
 
 async function init() {
   try {
-    setStatus('Loading manifest...');
-    setProgress(5);
-
-    // Load asset manifest
     const manifestResp = await fetch('manifest.json');
     manifest = await manifestResp.json();
+    setStatus('Ready');
+    log('Ready! Click "Build & Run" to compile.', 'log-ok');
+    postMessage({ type: 'ready' });
+  } catch (e: any) {
+    log('Init error: ' + e.message, 'log-err');
+    setStatus('Error');
+  }
+}
 
-    setStatus('Loading GOROOT...');
-    log('Loading GOROOT...', 'log-info');
-    const goroot = await fetchBytes('goroot.tar');
-    log(`  Downloaded ${fmtSize(goroot.compressedSize)} (${fmtSize(goroot.data.length)} uncompressed)`, 'log-info');
-    const fileCount = parseTar(goroot.data, '/goroot');
-    log(`  ${fileCount} files loaded`, 'log-info');
+// Lazy loader: downloads and compiles everything on first use
+function ensureLoaded(): Promise<void> {
+  if (!loadPromise) {
+    loadPromise = doLoad();
+  }
+  return loadPromise;
+}
 
-    setProgress(30);
-    setStatus('Loading tools...');
-    log('Loading tool components...', 'log-info');
-    for (const tool of ['compile', 'asm', 'link']) {
-      log(`  Loading ${tool}.component.wasm...`, 'log-info');
-      const r = await fetchBytes(`${tool}.component.wasm`);
-      memfs.addFile(`/goroot/pkg/tool/wasip3_wasm32/${tool}`, r.data);
-      log(`    ${fmtSize(r.compressedSize)} (${fmtSize(r.data.length)} uncompressed)`, 'log-info');
+async function doLoad() {
+  setStatus('Downloading...');
+  setProgress(5);
+  log('Downloading all assets in parallel...', 'log-info');
+
+  // Download everything + cache manifests in parallel
+  const [goroot, compileFetch, asmFetch, linkFetch, goFetch, compFetch, goimportsFetch, cacheManifestResp, prefetchManifestResp] =
+    await Promise.all([
+      fetchBytes('goroot.tar'),
+      fetchBytes('compile.component.wasm'),
+      fetchBytes('asm.component.wasm'),
+      fetchBytes('link.component.wasm'),
+      fetchBytes('go.component.wasm'),
+      fetchBytes('componentize.component.wasm'),
+      fetchBytes('goimports.component.wasm'),
+      fetch(manifest['gocache-manifest.json'] || 'gocache-manifest.json').catch(() => null),
+      fetch(manifest['gocache-prefetch.json'] || 'gocache-prefetch.json').catch(() => null),
+    ]);
+
+  log(`  goroot.tar: ${fmtSize(goroot.compressedSize)} (${fmtSize(goroot.data.length)} uncompressed)`, 'log-info');
+  const fileCount = parseTar(goroot.data, '/goroot');
+  log(`  ${fileCount} GOROOT files loaded`, 'log-info');
+
+  for (const [tool, r] of [['compile', compileFetch], ['asm', asmFetch], ['link', linkFetch]] as const) {
+    memfs.addFile(`/goroot/pkg/tool/wasip3_wasm32/${tool}`, r.data);
+    log(`  ${tool}: ${fmtSize(r.compressedSize)} (${fmtSize(r.data.length)} uncompressed)`, 'log-info');
+  }
+
+  setProgress(50);
+  setStatus('Compiling WASM modules...');
+  log('Compiling WASM modules...', 'log-info');
+
+  log(`  go: ${fmtSize(goFetch.compressedSize)} (${fmtSize(goFetch.data.length)} uncompressed)`, 'log-info');
+  const parsed = parseComponent(goFetch.data);
+  const result = generateCode(parsed, 'go', { jspiMode: false, mode: 'js' });
+  goCoreModules = new Map();
+  for (const m of result.coreModules) {
+    goCoreModules.set(m.fileName, await WebAssembly.compile(m.bytes as BufferSource));
+  }
+  goInstantiate = new Function('runtime', result.source)(runtime);
+
+  log(`  componentize: ${fmtSize(compFetch.compressedSize)} (${fmtSize(compFetch.data.length)} uncompressed)`, 'log-info');
+  componentizePrepared = await prepareComponent('componentize', compFetch.data);
+
+  log(`  goimports: ${fmtSize(goimportsFetch.compressedSize)} (${fmtSize(goimportsFetch.data.length)} uncompressed)`, 'log-info');
+  goimportsPrepared = await prepareComponent('goimports', goimportsFetch.data);
+
+  // Set up filesystem
+  memfs.addFile('/dev/null', new Uint8Array(0));
+  memfs.addDir('/tmp');
+  memfs.addDir('/tmp/gocache');
+  memfs.addDir('/tmp/gopath');
+  memfs.addDir('/out');
+  memfs.addDir('/usr/local/bin');
+  memfs.addFile('/usr/local/bin/go', goFetch.data);
+
+  // Register build cache — all files lazy, then prefetch the subset needed for hello-world
+  setStatus('Loading build cache...');
+  log('Loading build cache...', 'log-info');
+  let prefetchSet: Set<string> | null = null;
+  try {
+    if (prefetchManifestResp && prefetchManifestResp.ok) {
+      const prefetchList: { path: string }[] = await prefetchManifestResp.json();
+      prefetchSet = new Set(prefetchList.map(f => f.path));
     }
-
-    setProgress(60);
-    setStatus('Loading go compiler...');
-    log('Loading go.component.wasm...', 'log-info');
-    const goFetch = await fetchBytes('go.component.wasm');
-    log(`  ${fmtSize(goFetch.compressedSize)} (${fmtSize(goFetch.data.length)} uncompressed)`, 'log-info');
-    const parsed = parseComponent(goFetch.data);
-    const result = generateCode(parsed, 'go', { jspiMode: false, mode: 'js' });
-    goCoreModules = new Map();
-    for (const m of result.coreModules) {
-      goCoreModules.set(m.fileName, await WebAssembly.compile(m.bytes as BufferSource));
-    }
-    goInstantiate = new Function('runtime', result.source)(runtime);
-
-    log('Loading componentize.component.wasm...', 'log-info');
-    const compFetch = await fetchBytes('componentize.component.wasm');
-    log(`  ${fmtSize(compFetch.compressedSize)} (${fmtSize(compFetch.data.length)} uncompressed)`, 'log-info');
-    componentizePrepared = await prepareComponent('componentize', compFetch.data);
-
-    log('Loading goimports.component.wasm...', 'log-info');
-    const goimportsFetch = await fetchBytes('goimports.component.wasm');
-    log(`  ${fmtSize(goimportsFetch.compressedSize)} (${fmtSize(goimportsFetch.data.length)} uncompressed)`, 'log-info');
-    goimportsPrepared = await prepareComponent('goimports', goimportsFetch.data);
-
-    // Set up filesystem
-    memfs.addFile('/dev/null', new Uint8Array(0));
-    memfs.addDir('/tmp');
-    memfs.addDir('/tmp/gocache');
-    memfs.addDir('/tmp/gopath');
-    memfs.addDir('/out');
-    memfs.addDir('/usr/local/bin');
-    memfs.addFile('/usr/local/bin/go', goFetch.data);
-
-    // Register pre-warmed build cache for lazy on-demand loading
-    setStatus('Loading build cache manifest...');
-    log('Loading build cache manifest...', 'log-info');
-    try {
-      const cacheManifestResp = await fetch('gocache-manifest.json');
+  } catch {}
+  try {
+    if (cacheManifestResp && cacheManifestResp.ok) {
       const cacheFileList: { path: string; size: number }[] = await cacheManifestResp.json();
       for (const { path, size } of cacheFileList) {
-        // path has .gz suffix; strip it for the memfs path
         const memfsPath = path.replace(/\.gz$/, '');
         const parts = memfsPath.split('/');
         if (parts.length > 1) {
@@ -307,29 +333,32 @@ async function init() {
         }
         memfs.addLazyFile('/tmp/gocache/' + memfsPath, 'gocache/' + path, size);
       }
-      log(`  ${cacheFileList.length} cache files registered (lazy)`, 'log-info');
-    } catch (e: any) {
-      log(`  Build cache not available: ${e.message}`, 'log-info');
-    }
+      log(`  ${cacheFileList.length} cache files registered`, 'log-info');
 
-    setProgress(100);
-    setStatus('Ready');
-    log('Ready! Click "Build & Run" to compile.', 'log-ok');
-    postMessage({ type: 'ready' });
+      // Prefetch just the files needed for the default hello-world build
+      if (prefetchSet) {
+        const prefetchPaths = cacheFileList
+          .filter(f => prefetchSet!.has(f.path))
+          .map(f => f.path.replace(/\.gz$/, ''));
+        log(`  Prefetching ${prefetchPaths.length} cache files...`, 'log-info');
+        await memfs.prefetchLazy(prefetchPaths.map(p => '/tmp/gocache/' + p));
+        log(`  Prefetch complete`, 'log-info');
+      }
+    }
   } catch (e: any) {
-    log('Init error: ' + e.message, 'log-err');
-    log(e.stack, 'log-err');
-    setStatus('Error');
+    log(`  Build cache not available: ${e.message}`, 'log-info');
   }
+
+  setProgress(100);
 }
 
 // ---- Build ----
 
 async function build(source: string) {
-  setStatus('Compiling...');
-  setProgress(10);
-
   try {
+    await ensureLoaded();
+    setStatus('Compiling...');
+    setProgress(10);
     memfs.addFile('/work/main.go', source);
     memfs.addFile('/work/go.mod', 'module hello\n\ngo 1.27\n');
     memfs.addDir('/out');
@@ -441,6 +470,7 @@ async function build(source: string) {
 
 async function fmt(source: string) {
   try {
+    await ensureLoaded();
     memfs.addFile('/work/main.go', source);
 
     const stdoutChunks: string[] = [];
