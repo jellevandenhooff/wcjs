@@ -10,6 +10,7 @@ import './unit/subtask.test.ts';
 import './unit/call-context.test.ts';
 import './unit/binary-reader.test.ts';
 import './unit/parser.test.ts';
+import './unit/event-loop.test.ts';
 
 // Integration tests
 import './integration.ts';

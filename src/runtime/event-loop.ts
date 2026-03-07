@@ -282,8 +282,8 @@ export class EventLoop {
           continue;
         }
 
-        // Yield to microtask queue
-        await Promise.resolve();
+        // Yield to macrotask queue so the browser can repaint
+        await nextMacrotask();
 
         if (item.componentState.isDestroyed()) {
           item.resolve();
@@ -306,14 +306,19 @@ export class EventLoop {
       // 3. Only waiting items remain — nothing in queues
       if (this.waiting.size === 0) break;
 
-      // 4. Drain all pending microtasks before checking deadlock.
+      // 4. Drain pending microtasks before checking deadlock.
       //
-      // Cross-component JSPI calls create multi-level microtask chains for
-      // event delivery (Promise resolution → JSPI wasm resumption → subtask
-      // completion → wake). A macrotask boundary guarantees all microtasks
-      // have settled — unlike await Promise.resolve() which only drains one
-      // level. The macrotask boundary is the JS equivalent of synchronous
-      // event delivery within a single poll.
+      // Try a few microtask rounds first (cheap). Most async operations
+      // (e.g., in-memory filesystem) settle within 1-3 microtask levels.
+      // Only fall back to a full macrotask boundary for complex cases
+      // (cross-component JSPI chains).
+      for (let drainAttempt = 0; drainAttempt < 5; drainAttempt++) {
+        await Promise.resolve();
+        if (this.highPriority.length > 0 || this.lowPriority.length > 0) break;
+      }
+      if (this.highPriority.length > 0 || this.lowPriority.length > 0) continue;
+      if (this.waiting.size === 0) break;
+      // Microtasks didn't resolve anything — full macrotask boundary needed.
       await nextMacrotask();
       if (this.highPriority.length > 0 || this.lowPriority.length > 0) continue;
       if (this.waiting.size === 0) break;
