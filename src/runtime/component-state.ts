@@ -440,8 +440,22 @@ export class ComponentState {
 
   // Destroy this component state, aborting all pending operations.
   // This breaks any infinite event loops and rejects pending waitable-set waits.
+  // Also drops all remaining stream/future ends so that host-side consumers
+  // (e.g. consumeReadableStream) get the DROPPED signal and can finish.
   destroy(): void {
     this._destroyed = true;
+    // Drop all stream/future ends first (before aborting waitable sets) so
+    // that host-side consumers (e.g. consumeReadableStream) get the DROPPED
+    // signal and their promises can resolve.
+    for (const entry of this.handles.values()) {
+      if (entry instanceof WritableStreamEnd) {
+        entry.shared.dropWriter();
+      } else if (entry instanceof ReadableStreamEnd) {
+        entry.shared.dropReader();
+      } else if (entry instanceof FutureEnd) {
+        entry.shared.drop();
+      }
+    }
     this.abortAll(new Error('component destroyed'));
   }
 
