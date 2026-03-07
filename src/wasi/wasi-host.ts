@@ -6,6 +6,7 @@
 import { createSocketHost, createNameLookupHost } from './wasi-sockets.ts';
 import { createFilesystemHost } from './wasi-filesystem.ts';
 import { createHttpTypesHost, createHttpClientHost, createHttpHandlerHost } from './wasi-http.ts';
+import { createExecHost } from './wasi-exec.ts';
 import {
   type HostContext,
   WASI_TRACE,
@@ -115,11 +116,21 @@ export function createWasiHost(opts: WasiHostOptions = {}): WasiHost {
     }
   }
 
+  // Create wasi:exec/exec interface (versioned separately from WASI P3)
+  const execHost = createExecHost(ctx, {
+    preopens: opts.preopens,
+    parentCtx: ctx,
+  });
+  const execVersioned: Record<string, object> = {
+    'wasi:exec/exec@0.1.0': execHost,
+  };
+
   return {
     _stdout: stdoutArr,
     _stderr: stderrArr,
     _ctx: ctx,
     ...versionP3Ifaces(p3Ifaces),
+    ...execVersioned,
     ...p2Stubs({ args: opts.args, env: opts.env, cwd: opts.cwd }, stdoutArr),
   } as WasiHost;
 }
