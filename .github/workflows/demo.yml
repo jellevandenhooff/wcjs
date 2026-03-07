@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: source deps.env && echo "GO_COMMIT=$GO_COMMIT" >> $GITHUB_ENV && echo "GO_REPO=$GO_REPO" >> $GITHUB_ENV
       - uses: actions/setup-node@v4
         with:
           node-version: 25
@@ -36,10 +37,44 @@ jobs:
       - name: Download WASI adapter
         run: |
           curl -Lo wasi_adapter.wasm "https://github.com/bytecodealliance/wasmtime/releases/download/v42.0.1/wasi_snapshot_preview1.reactor.wasm"
+
+      # Build Rust demo (outputs to demo/dist/)
       - run: npm ci
       - run: npm run demo:build
         env:
           WASI_ADAPTER: wasi_adapter.wasm
+
+      # Build Go toolchain
+      - name: Cache Go toolchain
+        id: cache-go
+        uses: actions/cache@v4
+        with:
+          path: go
+          key: go-toolchain-${{ env.GO_COMMIT }}
+          save-always: true
+
+      - name: Build Go toolchain
+        if: steps.cache-go.outputs.cache-hit != 'true'
+        run: |
+          git init go
+          cd go
+          git remote add origin https://github.com/$GO_REPO.git
+          git fetch --depth 1 origin $GO_COMMIT
+          git checkout FETCH_HEAD
+          cd src && ./make.bash
+
+      # Build Go demo (outputs to demo/go/dist/)
+      - name: Build Go demo
+        run: bash demo/go/build.sh
+        env:
+          GODIR: ${{ github.workspace }}/go
+
+      # Merge demos: Rust at /, Go at /go/
+      - name: Merge demo outputs
+        run: |
+          mkdir -p demo/dist/go
+          cp -r demo/go/dist/* demo/dist/go/
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: demo/dist
