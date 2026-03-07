@@ -7,5 +7,6 @@ dist/
 *.wasm
 demo/generated/
 demo/dist/
+demo/go/dist/
 demo/guest/target/
 test/guest/rust/target/
