@@ -41,7 +41,10 @@
     "demo:build": "bash demo/build.sh",
     "demo:node": "node --experimental-transform-types demo/node-demo.ts",
     "demo:serve": "npx serve demo/dist -l 8080 --cors",
-    "test:browser": "node --experimental-transform-types test/browser-run.ts"
+    "demo:go:build": "bash demo/go/build.sh",
+    "demo:go:serve": "npx serve demo/go/dist -l 8080 --cors",
+    "test:browser": "node --experimental-transform-types test/browser-run.ts",
+    "test:browser-go": "node --experimental-transform-types test/browser-go-run.ts"
   },
   "devDependencies": {
     "@types/node": "^25.3.3",

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go Compiler in the Browser</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+  background: #f6f8fa; color: #1f2328;
+  display: flex; flex-direction: column; height: 100vh;
+}
+header {
+  padding: 12px 20px; background: #fff; border-bottom: 1px solid #d0d7de;
+  display: flex; align-items: center; gap: 16px;
+}
+header h1 { font-size: 18px; font-weight: 600; color: #0969da; }
+header .status { font-size: 13px; color: #656d76; margin-left: auto; }
+.main { display: flex; flex: 1; overflow: hidden; }
+.editor-pane {
+  flex: 1; display: flex; flex-direction: column;
+  border-right: 1px solid #d0d7de;
+}
+.output-pane { flex: 1; display: flex; flex-direction: column; }
+.pane-header {
+  padding: 8px 16px; background: #fff; border-bottom: 1px solid #d0d7de;
+  font-size: 13px; font-weight: 600; color: #656d76;
+  display: flex; align-items: center; gap: 12px;
+}
+.pane-header button {
+  background: #1a7f37; color: #fff; border: none; border-radius: 6px;
+  padding: 6px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.pane-header button:hover { background: #2da44e; }
+.pane-header button:disabled { background: #e1e4e8; color: #8c959f; cursor: not-allowed; }
+.dl-btn {
+  background: #0969da; color: #fff; border: none; border-radius: 6px;
+  padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+  text-decoration: none; display: inline-block;
+}
+.dl-btn:hover { background: #0550ae; }
+.download-bar {
+  padding: 8px 16px; background: #fff; border-top: 1px solid #d0d7de;
+  display: none; align-items: center; gap: 8px; font-size: 12px; color: #656d76;
+  flex-wrap: wrap;
+}
+.run-help {
+  width: 100%; margin-top: 4px; padding: 8px 12px;
+  background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+  line-height: 1.6; color: #1f2328;
+}
+.run-help summary {
+  cursor: pointer; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+  font-weight: 600; color: #656d76;
+}
+.run-help code {
+  display: block; margin: 4px 0; padding: 4px 8px;
+  background: #fff; border: 1px solid #d0d7de; border-radius: 4px;
+  user-select: all;
+}
+textarea {
+  flex: 1; width: 100%; resize: none; border: none; outline: none;
+  background: #fff; color: #1f2328; padding: 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 14px; line-height: 1.5; tab-size: 4;
+}
+#output {
+  flex: 1; overflow: auto; padding: 16px; background: #fff;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 13px; line-height: 1.5; white-space: pre-wrap;
+}
+.log-info { color: #656d76; }
+.log-ok { color: #1a7f37; }
+.log-err { color: #cf222e; }
+.log-pkg { color: #0969da; }
+.progress {
+  height: 3px; background: #e1e4e8; position: relative; overflow: hidden;
+}
+.progress-bar {
+  height: 100%; background: #0969da; width: 0%;
+  transition: width 0.3s ease;
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Go Compiler in the Browser</h1>
+  <span class="status" id="status">Loading...</span>
+</header>
+<div class="progress"><div class="progress-bar" id="progress"></div></div>
+<div class="main">
+  <div class="editor-pane">
+    <div class="pane-header">
+      <span>main.go</span>
+      <button id="fmtBtn" disabled style="background:#0969da">Fmt</button>
+      <button id="buildBtn" disabled>Build &amp; Run</button>
+    </div>
+    <textarea id="editor" spellcheck="false">package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello from the browser!")
+	for i := 0; i < 5; i++ {
+		fmt.Printf("  i = %d\n", i)
+	}
+}
+</textarea>
+  </div>
+  <div class="output-pane">
+    <div class="pane-header">
+      <span>Output</span>
+      <button id="clearBtn" style="background:#e1e4e8;color:#1f2328">Clear</button>
+    </div>
+    <div id="output"></div>
+    <div class="download-bar" id="downloadBar">
+      <span>Download:</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const outputEl = document.getElementById('output');
+const statusEl = document.getElementById('status');
+const progressEl = document.getElementById('progress');
+const buildBtn = document.getElementById('buildBtn');
+const fmtBtn = document.getElementById('fmtBtn');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBar = document.getElementById('downloadBar');
+
+function log(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text + '\n';
+  outputEl.appendChild(span);
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+
+clearBtn.onclick = () => { outputEl.innerHTML = ''; };
+
+function downloadBlob(data, filename) {
+  const blob = new Blob([data]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+let currentArtifacts = null;
+
+function showDownloadButtons(artifacts) {
+  currentArtifacts = artifacts;
+  while (downloadBar.children.length > 1) downloadBar.removeChild(downloadBar.lastChild);
+
+  const wasmBtn = document.createElement('button');
+  wasmBtn.className = 'dl-btn';
+  wasmBtn.textContent = `component.wasm (${(artifacts.componentWasm.length / 1024).toFixed(0)} KB)`;
+  wasmBtn.onclick = () => downloadBlob(artifacts.componentWasm, 'hello.component.wasm');
+
+  const helpEl = document.createElement('details');
+  helpEl.className = 'run-help';
+  helpEl.innerHTML = `<summary>How to run this component</summary>
+<code>wasmtime run -W component-model-async,component-model-async-builtins -S p3 ./hello.component.wasm</code>
+<code>npx @jellevdh/wcjs run ./hello.component.wasm</code>`;
+
+  downloadBar.appendChild(wasmBtn);
+  downloadBar.appendChild(helpEl);
+  downloadBar.style.display = 'flex';
+}
+
+const worker = new Worker('worker.js', { type: 'module' });
+
+worker.onmessage = (e) => {
+  const msg = e.data;
+  switch (msg.type) {
+    case 'log':
+      log(msg.text, msg.cls);
+      break;
+    case 'status':
+      statusEl.textContent = msg.text;
+      break;
+    case 'progress':
+      progressEl.style.width = msg.pct + '%';
+      break;
+    case 'ready':
+      buildBtn.disabled = false;
+      fmtBtn.disabled = false;
+      break;
+    case 'done':
+      buildBtn.disabled = false;
+      break;
+    case 'artifacts':
+      showDownloadButtons(msg.artifacts);
+      break;
+    case 'fmt-ok':
+      document.getElementById('editor').value = msg.source;
+      fmtBtn.disabled = false;
+      break;
+    case 'fmt-err':
+      log('fmt: ' + msg.error, 'log-err');
+      fmtBtn.disabled = false;
+      break;
+  }
+};
+
+worker.onerror = (e) => {
+  log('Worker error: ' + e.message, 'log-err');
+  statusEl.textContent = 'Error';
+  buildBtn.disabled = false;
+};
+
+fmtBtn.onclick = () => {
+  fmtBtn.disabled = true;
+  const source = document.getElementById('editor').value;
+  worker.postMessage({ type: 'fmt', source });
+};
+
+buildBtn.onclick = () => {
+  buildBtn.disabled = true;
+  downloadBar.style.display = 'none';
+  const source = document.getElementById('editor').value;
+  worker.postMessage({ type: 'build', source });
+};
+</script>
+</body>
+</html>

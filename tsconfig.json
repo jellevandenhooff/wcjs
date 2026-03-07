@@ -15,5 +15,5 @@
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "demo/**/*.ts", "cli.ts"],
-  "exclude": ["test/out", "test/guest/out", "test/debug-fs.ts", "demo/generated", "demo/dist", "demo/guest", "demo/node-demo.ts", "demo/web"]
+  "exclude": ["test/out", "test/guest/out", "test/debug-fs.ts", "demo/generated", "demo/dist", "demo/guest", "demo/node-demo.ts", "demo/web", "demo/go"]
 }
