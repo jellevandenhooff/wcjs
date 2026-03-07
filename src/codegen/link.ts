@@ -1335,7 +1335,7 @@ function resolveCoreFuncBinding(
             ? resolveResourceTypes(compFunc.typeInfo.resultType) : null;
           const paramFlat = paramTypes.flatMap(flattenHostValType);
           const resultFlat = resultType ? flattenHostValType(resultType) : [];
-          const globalMemIdx = cf.memoryIdx != null ? scope.getGlobalMemoryIdx(cf.memoryIdx) : null;
+          const globalMemIdx = scope.getGlobalMemoryIdx(cf.memoryIdx ?? 0);
           // Resolve realloc if present
           let realloc: { runtimeInstanceIdx: number; exportName: string } | null = null;
           if (cf.reallocIdx != null) {
