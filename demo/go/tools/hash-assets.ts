@@ -56,5 +56,15 @@ if (existsSync(gocacheDir)) {
   console.log(`  gocache/ gzipped (${cacheManifest.length} files, ${(totalRaw / 1024 / 1024).toFixed(1)} MB → ${(totalGz / 1024 / 1024).toFixed(1)} MB gz)`);
 }
 
+// Copy prefetch manifest (subset of cache files needed for default hello-world build)
+const prefetchSrc = join(OUTDIR, 'gocache-prefetch.json');
+if (existsSync(prefetchSrc)) {
+  // Rewrite paths to match the .gz versions in dist
+  const prefetchList: { path: string; size: number }[] = JSON.parse(readFileSync(prefetchSrc, 'utf8'));
+  const gzPrefetch = prefetchList.map(f => ({ path: f.path + '.gz', size: f.size }));
+  writeFileSync(join(DISTDIR, 'gocache-prefetch.json'), JSON.stringify(gzPrefetch));
+  console.log(`  gocache-prefetch.json written (${gzPrefetch.length} files)`);
+}
+
 writeFileSync(join(DISTDIR, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 console.log(`  manifest.json written (${Object.keys(manifest).length} entries)`);

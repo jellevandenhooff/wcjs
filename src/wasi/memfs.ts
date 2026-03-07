@@ -135,6 +135,7 @@ type FsNode = FsFile | FsDir | FsSymlink;
 export class MemFS {
   root: FsDir = new FsDir();
 
+
   addFile(path: string, data: Uint8Array | string): void {
     const parts = splitPath(path);
     const name = parts.pop()!;
@@ -153,6 +154,29 @@ export class MemFS {
     const file = new FsFile();
     file.setLazyUrl(url, size);
     dir.entries.set(name, file);
+  }
+
+  /** Eagerly fetch lazy files in parallel. If paths given, fetch only those; otherwise fetch all. */
+  prefetchLazy(paths?: string[]): Promise<void> {
+    const promises: Promise<void>[] = [];
+    if (paths) {
+      for (const p of paths) {
+        const node = this._resolve(splitPath(p));
+        if (node instanceof FsFile && node._fetchUrl) {
+          promises.push(node.ensureLoaded());
+        }
+      }
+    } else {
+      const walk = (node: FsNode) => {
+        if (node instanceof FsFile && node._fetchUrl) {
+          promises.push(node.ensureLoaded());
+        } else if (node instanceof FsDir) {
+          for (const child of node.entries.values()) walk(child);
+        }
+      };
+      walk(this.root);
+    }
+    return Promise.all(promises).then(() => {});
   }
 
   addSymlink(path: string, target: string): void {
